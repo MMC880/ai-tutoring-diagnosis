@@ -47,6 +47,17 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.request('/records.sqlite3')[0], 404)
         self.assertEqual(self.request('/../store.py')[0], 404)
 
+    def test_intake_is_read_only_metadata_and_origin_protected(self):
+        code,body,_=self.request('/api/intake')
+        self.assertEqual(code,200)
+        result=json.loads(body)
+        self.assertEqual(result['batches'][0]['paper_count'],1)
+        self.assertNotIn('questions',result['batches'][0]['papers'][0])
+        self.assertEqual(self.request('/api/intake',headers={'Origin':'https://attacker.test'})[0],403)
+        self.assertEqual(self.request('/api/intake',headers={'Host':'attacker.test'})[0],403)
+        self.assertEqual(self.request('/api/intake',{})[0],404)
+        self.assertEqual(self.store.event_count(),0)
+
     def test_cross_origin_and_bad_host_rejected(self):
         self.assertEqual(self.request('/api/bootstrap', headers={'Host': 'attacker.test'})[0], 403)
         self.assertEqual(self.request('/api/bootstrap', headers={'Origin': 'https://attacker.test'})[0], 403)

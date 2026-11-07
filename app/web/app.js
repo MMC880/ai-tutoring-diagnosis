@@ -3,7 +3,7 @@ const $ = (s, root=document) => root.querySelector(s);
 const $$ = (s, root=document) => [...root.querySelectorAll(s)];
 const esc = x => String(x ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const labels = {CORRECT:'正确',INCORRECT:'错误',PARTIAL:'部分正确',PENDING:'待核对',MISSING:'缺材料'};
-const views = {review:['整卷审核','核对每一份作业，让证据进入档案'],profile:['个人学习档案','保留历史，也看见每一次新的表现'],class:['班级共性问题','从已确认的原卷中找出下一课的重点'],practice:['针对性补练','一次补齐一个卡点，再独立验证'],backup:['本地资料管理','备份、恢复与本机运行信息'],ai:['AI服务','本机配置，先预览外发内容，再逐次授权'],teaching:['教学资料库','老师资料本地整理，审核后引用到具体问题'],pilot:['试点记录','记录完整工作量，核实是否真正省时']};
+const views = {review:['整卷审核','核对每一份作业，让证据进入档案'],profile:['个人学习档案','保留历史，也看见每一次新的表现'],class:['班级共性问题','从已确认的原卷中找出下一课的重点'],practice:['针对性补练','一次补齐一个卡点，再独立验证'],backup:['本地资料管理','备份、恢复与本机运行信息'],ai:['AI服务','本机配置，先预览外发内容，再逐次授权'],teaching:['教学资料库','老师资料本地整理，审核后引用到具体问题'],pilot:['试点记录','记录完整工作量，核实是否真正省时'],intake:['批次收件','逐人核对材料与进度，再进入整卷审核']};
 let data, aiSettings, token='', paperId='', view=Object.hasOwn(views,location.hash.slice(1))?location.hash.slice(1):'review', dirty=false, selectedDoc=0, selectedExercise='', selectedExerciseVersion=null, requestId='', currentProfile, currentSummary;
 let busy=false,renderEpoch=0;
 const paper = () => data?.papers.find(p=>p.id===paperId);
@@ -21,7 +21,7 @@ async function render(){
  const epoch=++renderEpoch,p=paper(),sourceView=view;dirty=false;
  if(view==='profile'&&p){const profile=await api('profiles/'+p.student_id);if(epoch!==renderEpoch||view!==sourceView||paperId!==p.id)return;currentProfile=profile;}
  if(view==='class')currentSummary=await api('summary?batch='+encodeURIComponent(p?.batch_id||''));
- const markup=`<div class="shell"><aside class="sidebar"><div class="brand">晋学智辅<small>TEACHER WORKSPACE</small></div><nav class="nav">${Object.entries(views).map(([k,v],i)=>`<button data-view="${k}" class="${view===k?'active':''}"><b>${['▤','◉','▥','▧','⚙','✧','▦','☑'][i]}</b>${v[0]}</button>`).join('')}</nav><div class="sidefoot"><strong>本机资料 · 单用户试用</strong>初中数学 / 山西中考<br>心理档案不在产品范围<br>AI材料逐次预览与授权</div></aside><div class="body"><header><div><div class="eyebrow">本地试用版 0.16</div><h1>${views[view][0]}</h1><small>${views[view][1]}</small></div><div class="head-actions"><span class="local-pill">● 本机保存 · ${aiSettings.key_loaded?'已填AI密钥':'AI未启用'}</span><button data-action="new">＋ 收一份作业</button></div></header><div class="toolbar"><span class="muted">当前整卷</span><select id="paper-select"><option value="">选择学生作业</option>${data.papers.map(x=>`<option value="${x.id}" ${x.id===paperId?'selected':''}>${esc(x.student_name)} / ${esc(x.batch_id)} / ${status(x)}</option>`).join('')}</select>${p?`<span class="tag">V${p.version} · ${status(p)}</span>`:''}<span style="margin-left:auto" class="micro muted">${data.students.length} 名学生 · ${data.event_count} 条原卷确认历史</span></div><main class="workspace">${view==='ai'?await aiSettingsPage():view==='backup'?await backupPage():view==='teaching'?await teachingPage():view==='pilot'?await pilotPage():!p?emptyPage():view==='review'?reviewPage(p):view==='profile'?profilePage(p):view==='class'?classPage(p):practicePage(p)}</main>${view==='review'&&p?reviewFooter(p):''}</div></div>`;
+ const markup=`<div class="shell"><aside class="sidebar"><div class="brand">晋学智辅<small>TEACHER WORKSPACE</small></div><nav class="nav">${Object.entries(views).map(([k,v],i)=>`<button data-view="${k}" class="${view===k?'active':''}"><b>${['▤','◉','▥','▧','⚙','✧','▦','☑','▤'][i]}</b>${v[0]}</button>`).join('')}</nav><div class="sidefoot"><strong>本机资料 · 单用户试用</strong>初中数学 / 山西中考<br>心理档案不在产品范围<br>AI材料逐次预览与授权</div></aside><div class="body"><header><div><div class="eyebrow">本地试用版 0.17</div><h1>${views[view][0]}</h1><small>${views[view][1]}</small></div><div class="head-actions"><span class="local-pill">● 本机保存 · ${aiSettings.key_loaded?'已填AI密钥':'AI未启用'}</span><button data-action="new">＋ 收一份作业</button></div></header>${view==='intake'?'':`<div class="toolbar"><span class="muted">当前整卷</span><select id="paper-select"><option value="">选择学生作业</option>${data.papers.map(x=>`<option value="${x.id}" ${x.id===paperId?'selected':''}>${esc(x.student_name)} / ${esc(x.batch_id)} / ${status(x)}</option>`).join('')}</select>${p?`<span class="tag">V${p.version} · ${status(p)}</span>`:''}<span style="margin-left:auto" class="micro muted">${data.students.length} 名学生 · ${data.event_count} 条原卷确认历史</span></div>`}<main class="workspace">${view==='ai'?await aiSettingsPage():view==='backup'?await backupPage():view==='teaching'?await teachingPage():view==='pilot'?await pilotPage():view==='intake'?await intakePage():!p?emptyPage():view==='review'?reviewPage(p):view==='profile'?profilePage(p):view==='class'?classPage(p):practicePage(p)}</main>${view==='review'&&p?reviewFooter(p):''}</div></div>`;
  if(epoch!==renderEpoch||view!==sourceView||p?.id!==paper()?.id)return;$('#app').innerHTML=markup;
  if(view==='review'&&p){$('.panel-head', $('#questions').parentElement).insertAdjacentHTML('beforeend','<button data-action="ai-material">AI辅助核对</button>');}
  if(view==='review'&&p){
@@ -73,6 +73,7 @@ function exportModal(kind,audience='teacher'){const item=kind==='paper'?paper():
 async function handle(action,el){
  if(action.startsWith('continuation-'))return continuationHandle(action,el);
  if(action.startsWith('pilot-'))return pilotHandle(action,el);
+ if(action.startsWith('intake-'))return intakeHandle(action,el);
  if(action.startsWith('teaching-'))return teachingHandle(action,el);
  if(action.startsWith('archive-'))return archiveHandle(action,el);
  if(action.startsWith('grading-'))return gradingHandle(action,el);
@@ -108,6 +109,7 @@ document.addEventListener('click',async ev=>{const el=ev.target.closest('button,
  if(el.dataset.action){if(busy)return;busy=true;await handle(el.dataset.action,el);}
  }catch(e){toast(e.message||String(e));}finally{busy=false;}});
 document.addEventListener('change',async ev=>{const e=ev.target;try{if(e.id==='paper-select'){if(canLeave()){paperId=e.value;selectedDoc=0;selectedExercise='';await render();}else e.value=paperId;}
+ if(e.id==='intake-batch'||e.id==='intake-filter')return await intakeSelect(e);
  if(e.id==='profile-student-select')return await archiveSelect(e);
  if(e.id==='exercise-version'){if(canLeave()){selectedExerciseVersion=Number(e.value);await render();}else e.value=exercise().version;}
  if(e.id==='ai-send-consent')$('#ai-send').disabled=!e.checked||!aiSettings.key_loaded;
