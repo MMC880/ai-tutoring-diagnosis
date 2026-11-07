@@ -289,10 +289,15 @@ class Store:
                     r['binary_denominator'] += 1
                 if e['result'] == 'INCORRECT':
                     r['incorrect_students'].append(e['student_name'])
+            from class_analysis import build_class_analysis
+            papers=[self._paper(db,r[0]) for r in db.execute('SELECT id FROM papers WHERE batch_id=?',(batch,))]
+            by_paper={p['id']:p for p in papers}
+            event_documents={e['id']:paper_materials.documents_at(db,e['paper_id'],e['revision'],by_paper[e['paper_id']]['documents']) for e in latest}
+            analysis=build_class_analysis(latest,papers,event_documents)
             total = {k: sum(r['counts'][k] for r in rows.values()) for k in RESULTS}
             return dict(batch_id=batch, confirmed_students=len({e['student_id'] for e in latest}),
                         submitted_students=db.execute('SELECT count(*) FROM papers WHERE batch_id=?', (batch,)).fetchone()[0],
-                        rows=list(rows.values()), counts=total, binary_denominator=total['CORRECT']+total['INCORRECT'])
+                        rows=list(rows.values()), counts=total, binary_denominator=total['CORRECT']+total['INCORRECT'], class_analysis=analysis)
 
     def profile(self, student):
         with self.lock, self.db() as db:
