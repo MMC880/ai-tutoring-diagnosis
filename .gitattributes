@@ -1,0 +1,3 @@
+# Preserve the imported working tree bytes, including the Windows CMD CRLF entry.
+# Diff detection remains automatic; this only disables line-ending conversion.
+* -text

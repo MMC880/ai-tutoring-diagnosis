@@ -1,0 +1,20 @@
+import vm from 'node:vm';
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+const context=vm.createContext({document:{addEventListener(){}}});
+vm.runInContext(await fs.readFile(new URL('../web/continuation-panel.js',import.meta.url),'utf8'),context);
+let checks=0;
+function check(name,fn){fn();checks++;console.log('PASS '+name);}
+const old={stem:'原题',answer:'旧解题步骤',recognition_notes:'旧负号待核',recognition_notice:'此前缺页',recognition_resolved:false};
+const incoming={stem:'补充条件',answer:'本页步骤',recognition_notes:'新字迹待核',recognition_resolved:true};
+const compose=(a,b)=>context.composeContinuation(a,b),validate=x=>context.validateContinuation(x);
+check('保留两段题干和作答',()=>{const r=compose(old,incoming);for(const t of ['原题','补充条件'])assert.ok(r.stem.includes(t));for(const t of ['旧解题步骤','本页步骤'])assert.ok(r.answer.includes(t));});
+check('相同题干只留一次',()=>assert.equal(compose({...old,stem:' 原题 '},{...incoming,stem:'原题'}).stem,'原题'));
+check('旧识别疑点和notice保留',()=>{const r=compose(old,incoming);for(const t of ['旧负号待核','此前缺页','新字迹待核'])assert.ok(r.recognition_notes.includes(t));assert.equal(r.recognition_resolved,false);});
+check('子串含义不同的疑点都保留',()=>{const r=compose({...old,recognition_notes:'第一页未见漏字',recognition_notice:'原区域无缺损'},{...incoming,recognition_notes:'漏字',recognition_notice:'缺损'});const items=r.recognition_notes.split('；');assert.ok(items.includes('漏字'));assert.ok(items.includes('缺损'));assert.ok(items.includes('第一页未见漏字'));});
+check('完全相同备注只留一次',()=>assert.equal(compose({...old,recognition_notes:'相同提示',recognition_notice:'相同提示'},{...incoming,recognition_notes:'相同提示'}).recognition_notes,'相同提示'));
+check('两段核清才默认核清',()=>{assert.equal(compose({...old,recognition_resolved:true},incoming).recognition_resolved,true);assert.equal(compose({...old,recognition_resolved:true},{...incoming,recognition_resolved:false}).recognition_resolved,false);});
+check('空白来源不伪装合并',()=>assert.throws(()=>compose({stem:'待录入原题',answer:''},incoming)));
+check('超长不截断且允许修改后验证',()=>{const r=compose({...old,answer:'a'.repeat(12000)},incoming);assert.ok(r.answer.length>12000);assert.throws(()=>validate(r));r.answer='老师核对的最终文本';validate(r);});
+check('字段限制和类型严格',()=>{for(const patch of [{stem:''},{answer:'x'.repeat(12001)},{recognition_notes:'x'.repeat(1501)},{recognition_resolved:'true'}])assert.throws(()=>validate({...compose(old,incoming),...patch}));});
+console.log(JSON.stringify({passed:checks,total:9,scope:'local text contract only, no OCR or math reliability claim'}));

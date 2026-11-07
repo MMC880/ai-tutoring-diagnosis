@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>晋学智辅 · 老师工作台交互原型</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#workspace">跳到工作区</a>
+  <aside class="sidebar" aria-label="主导航">
+    <div class="brand"><span class="brand-seal">晋</span><div><strong>晋学智辅</strong><span>把每次作业，变成教学依据</span></div></div>
+    <div class="class-label">当前班级</div>
+    <div class="class-name">太原 · 中考复习班<span>初中数学　｜　10 人试点方向</span></div>
+    <nav>
+      <button class="nav-item active" data-view="review"><span class="nav-symbol">▤</span>作业审核<span class="nav-dot"></span></button>
+      <button class="nav-item" data-view="profile"><span class="nav-symbol">▧</span>学习档案</button>
+      <button class="nav-item" data-view="class"><span class="nav-symbol">▥</span>班级共性</button>
+      <button class="nav-item" data-view="practice"><span class="nav-symbol">▱</span>补练与复测</button>
+    </nav>
+    <div class="sidebar-note"><span class="small-dot"></span>教师审核后再交付学生<p>历史留得住，变化看得见。</p></div>
+    <button class="reset-button" data-action="reset">重置演示</button>
+    <div class="teacher-identity"><span class="avatar">师</span><div>教师工作台<small>界面原型 · 虚构数据</small></div></div>
+  </aside>
+  <div class="app-shell">
+    <header class="topbar"><div class="breadcrumb">老师工作台 <span>/</span> <strong id="breadcrumb-current">作业审核</strong></div><div class="topbar-actions"><span class="prototype-pill">可交互原型</span><button class="button small" data-action="import">＋ 新建作业</button></div></header>
+    <div class="prototype-notice"><span>演示说明</span> 使用合成作业与虚构记录；操作只影响当前页面，刷新后恢复。<button data-action="about">查看范围</button></div>
+    <main id="workspace" tabindex="-1"></main>
+    <footer class="app-footer"><span>山西初中数学 · 作业诊断与精准辅导</span><span>先看证据，再确认学情</span></footer>
+  </div>
+  <dialog id="modal" aria-labelledby="modal-title"><div id="modal-content"></div></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
