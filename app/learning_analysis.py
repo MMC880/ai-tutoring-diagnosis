@@ -7,6 +7,18 @@ from store import RESULTS
 def _label(value): return ' '.join(value.split()) if isinstance(value,str) else ''
 
 
+def knowledge_group_key(question):
+    knowledge=_label(question.get('knowledge',''));kind=_label(question.get('question_type',''))
+    if not knowledge and not kind:return None
+    reference=question.get('teaching_ref')
+    return ('teaching-entry',reference['material_id'],reference['entry_id']) if reference else (knowledge,kind)
+
+
+def knowledge_group_id(question):
+    key=knowledge_group_key(question)
+    return hashlib.sha256(json.dumps(key,ensure_ascii=False).encode()).hexdigest() if key is not None else None
+
+
 def build_learning_analysis(latest,papers,event_documents=None):
     by_paper={p['id']:p for p in papers}
     seen={}; unique=[]; duplicates=[]; photo_papers={}; source_units={}
@@ -34,9 +46,9 @@ def build_learning_analysis(latest,papers,event_documents=None):
         reference=q.get('teaching_ref')
         # The teacher-selected entry is stable across approved source versions.
         # Text-only records keep their legacy grouping and never join it by name.
-        key=('teaching-entry',reference['material_id'],reference['entry_id']) if reference else (knowledge,kind)
+        key=knowledge_group_key(q)
         if key not in groups:
-            ident=hashlib.sha256(json.dumps(key,ensure_ascii=False).encode()).hexdigest()
+            ident=knowledge_group_id(q)
             groups[key]=dict(id=ident,knowledge=knowledge,question_type=kind,counts={k:0 for k in RESULTS},
                 wrong_count=0,wrong_paper_count=0,paper_count=0,evidence=[],practice_source=None,review_source=None,
                 signal='NO_CURRENT_ERROR',last_event_id=event['id'],

@@ -315,8 +315,11 @@ class Store:
             by_paper={p['id']:p for p in papers}
             event_documents={e['id']:paper_materials.documents_at(db,e['paper_id'],e['revision'],by_paper[e['paper_id']]['documents']) for e in latest}
             analysis=build_learning_analysis(latest,papers,event_documents)
+            from knowledge_followup import attach_followup
+            journeys=learning_journey.build(self,db,s['id'],events)
+            attach_followup(analysis,journeys)
             return dict(student=dict(s),events=events,latest=latest,retests=retests,
-                        learning_analysis=analysis,learning_journeys=learning_journey.build(self,db,s['id'],events)) | summarize(events,latest,analysis,papers)
+                        learning_analysis=analysis,learning_journeys=journeys) | summarize(events,latest,analysis,papers)
 
     def student_evidence(self, student_id, event_id):
         if not isinstance(student_id,str) or type(event_id) is not int or not 0 < event_id < 2**63:
