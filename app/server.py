@@ -86,7 +86,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def get(self, route, query):
         if route == '/api/launch-info': return dict(application_directory=str(HERE.resolve()),data_directory=str(self.store.root))
-        if route == '/api/health': return dict(status='ok', mode='LOCAL_STORE_EXPLICIT_AI', version='0.22.0')
+        if route == '/api/health': return dict(status='ok', mode='LOCAL_STORE_EXPLICIT_AI', version='0.23.0')
         if route == '/api/bootstrap': return self.store.bootstrap() | {'csrf_token': self.server.token}
         if route == '/api/intake':
             from intake import intake_overview
@@ -119,6 +119,19 @@ class Handler(BaseHTTPRequestHandler):
             if not any(d['id']==m[2] and d.get('role','作业')=='作业' for d in paper['documents']):
                 raise ValidationError('此图片不是当前学生本卷的作业附件')
             self.send(200,vision.preview_document(self.store.root,m[2]),'image/png'); return
+        m = re.fullmatch(r'/api/profiles/([a-f0-9]{32})/report', route)
+        if m:
+            from profile_report import build_profile_report
+            return build_profile_report(self.store, m[1])
+        m = re.fullmatch(r'/(api/export|print)/profile/([a-f0-9]{32})(\.docx)?', route)
+        if m:
+            from profile_report import report_content
+            title, blocks = report_content(self.store, m[2], query.get('fingerprint', [''])[0], query.get('audience', ['teacher'])[0])
+            if m[1] == 'api/export' and m[3]:
+                self.send(200, word_bytes(title, blocks), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', title + '.docx')
+            elif m[1] == 'print' and not m[3]: self.send(200, print_html(title, blocks), 'text/html; charset=utf-8')
+            else: self.send(404, {'error': '路径不存在'})
+            return
         m = re.fullmatch(r'/api/profiles/([a-f0-9]{32})', route)
         if m: return self.store.profile(m[1])
         m = re.fullmatch(r'/api/profiles/([a-f0-9]{32})/evidence/([1-9][0-9]{0,18})', route)
@@ -143,7 +156,7 @@ class Handler(BaseHTTPRequestHandler):
             elif m[1] == 'print' and not m[4]: self.send(200, print_html(title, blocks), 'text/html; charset=utf-8')
             else: self.send(404, {'error': '路径不存在'})
             return
-        allowed = {'/': 'index.html', '/app.js': 'app.js', '/ai-panel.js':'ai-panel.js', '/vision-panel.js':'vision-panel.js','/learning-panel.js':'learning-panel.js','/tutoring-panel.js':'tutoring-panel.js','/photo-panel.js':'photo-panel.js','/continuation-panel.js':'continuation-panel.js','/grading-panel.js':'grading-panel.js','/archive-panel.js':'archive-panel.js','/pilot-panel.js':'pilot-panel.js','/intake-panel.js':'intake-panel.js','/materials-panel.js':'materials-panel.js','/review-flow.js':'review-flow.js','/class-panel.js':'class-panel.js','/followup-panel.js':'followup-panel.js','/queue-panel.js':'queue-panel.js','/teaching-panel.js':'teaching-panel.js', '/styles.css': 'styles.css', '/print.js': 'print.js', '/assets/synthetic-homework.png': 'assets/synthetic-homework.png'}
+        allowed = {'/': 'index.html', '/app.js': 'app.js', '/ai-panel.js':'ai-panel.js', '/vision-panel.js':'vision-panel.js','/learning-panel.js':'learning-panel.js','/tutoring-panel.js':'tutoring-panel.js','/photo-panel.js':'photo-panel.js','/continuation-panel.js':'continuation-panel.js','/grading-panel.js':'grading-panel.js','/archive-panel.js':'archive-panel.js','/report-panel.js':'report-panel.js','/pilot-panel.js':'pilot-panel.js','/intake-panel.js':'intake-panel.js','/materials-panel.js':'materials-panel.js','/review-flow.js':'review-flow.js','/class-panel.js':'class-panel.js','/followup-panel.js':'followup-panel.js','/queue-panel.js':'queue-panel.js','/teaching-panel.js':'teaching-panel.js', '/styles.css': 'styles.css', '/print.js': 'print.js', '/assets/synthetic-homework.png': 'assets/synthetic-homework.png'}
         if route in allowed:
             p = HERE / 'web' / allowed[route]
             if p.is_file():

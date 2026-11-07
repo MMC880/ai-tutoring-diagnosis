@@ -47,6 +47,29 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.request('/records.sqlite3')[0], 404)
         self.assertEqual(self.request('/../store.py')[0], 404)
 
+    def test_profile_report_preview_export_staleness_and_origin(self):
+        self.store.confirm(self.paper['id'],1,True)
+        student=self.paper['student_id'];path='/api/profiles/'+student+'/report'
+        status,body,_=self.request(path)
+        self.assertEqual(status,200,'报告预览接口尚未实现')
+        report=json.loads(body);before=self.store.profile(student)
+        suffix=student+'?fingerprint='+report['fingerprint']
+        doc='/api/export/profile/'+student+'.docx?fingerprint='+report['fingerprint']
+        status,body,headers=self.request(doc);self.assertEqual(status,200)
+        self.assertIn('wordprocessingml',headers['Content-Type'])
+        with zipfile.ZipFile(io.BytesIO(body)) as z:self.assertIsNone(z.testzip())
+        self.assertEqual(self.request('/print/profile/'+suffix)[0],200)
+        self.assertEqual(self.request(doc+'&audience=student')[0],400)
+        self.assertEqual(self.request('/api/export/profile/'+student+'.docx')[0],400)
+        self.assertEqual(self.request(path,headers={'Origin':'https://outside.invalid'})[0],403)
+        self.assertEqual(self.request(doc,headers={'Sec-Fetch-Site':'cross-site'})[0],403)
+        self.assertEqual(self.request('/api/profiles/'+'0'*32+'/report')[0],400)
+        self.assertEqual(self.store.profile(student),before)
+        changed=self.paper['questions'];changed[0]['answer']='合成修改后的待审原答'
+        self.store.save_paper(self.paper['id'],dict(version=1,questions=changed))
+        self.assertEqual(self.request(doc)[0],409)
+        self.assertEqual(self.request('/print/profile/'+suffix)[0],409)
+
     def test_practice_queue_is_read_only_metadata_and_origin_protected(self):
         self.store.confirm(self.paper['id'],1,True)
         self.store.create_exercise(dict(paper_id=self.paper['id'],question_id='Q01',
