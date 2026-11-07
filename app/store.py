@@ -13,6 +13,7 @@ import teaching
 import learning_journey
 import pilot
 import paper_materials
+import assignment_dates
 
 
 class ValidationError(ValueError):
@@ -130,6 +131,7 @@ class Store:
 
     def _migrate_versions(self, db):
         paper_materials.ensure_schema(db)
+        assignment_dates.ensure_schema(db)
         pilot.ensure_schema(db)
         teaching.ensure_schema(db)
         learning_journey.ensure_schema(db)
@@ -173,6 +175,7 @@ class Store:
         out = dict(row)
         out['questions'] = json.loads(out.pop('questions_json'))
         out['documents'] = json.loads(out.pop('documents_json'))
+        out['assignment_date'] = assignment_dates.date_at(db,ident,out['version'])
         return out
 
     def _documents(self, docs):
@@ -196,6 +199,7 @@ class Store:
         batch = text_field(payload.get('batch_id'), '作业批次', 100, True)
         title = text_field(payload.get('title'), '作业标题', 160, True)
         docs = self._documents(payload.get('documents', []))
+        assignment_date = assignment_dates.validate_date(payload.get('assignment_date',''))
         with self.lock, self.db() as db:
             teaching.validate_questions(db,q)
             s = db.execute('SELECT * FROM students WHERE ref=?', (ref,)).fetchone()
@@ -208,6 +212,7 @@ class Store:
                 db.execute('INSERT INTO students VALUES(?,?,?)', (sid, ref, name))
             ident = uuid.uuid4().hex
             db.execute('INSERT INTO papers VALUES(?,?,?,?,1,0,?,?,?,?)', (ident, batch, title, sid, dump(q), dump(docs), now(), now()))
+            if assignment_date:db.execute('INSERT INTO paper_assignment_dates VALUES(?,?,?)',(ident,1,assignment_date))
             return self._paper(db, ident)
 
     def get_paper(self, ident):
@@ -274,7 +279,7 @@ class Store:
         if student is not None:
             sql += ' AND e.student_id=?'
             args.append(student)
-        return [dict(r) | {'question': json.loads(r['body_json'])} for r in db.execute(sql + ' ORDER BY e.question_id,e.id', args)]
+        return assignment_dates.attach_events(db,[dict(r) | {'question': json.loads(r['body_json'])} for r in db.execute(sql + ' ORDER BY e.question_id,e.id', args)])
 
     def summary(self, batch):
         with self.lock, self.db() as db:
@@ -307,6 +312,7 @@ class Store:
                 analysis=dict(groups=[],unclassified_count=0,duplicate_count=0,duplicate_evidence=[],evidence_event_ids=[])
                 return dict(student=None, events=[], latest=[], retests=[],learning_journeys=[],learning_analysis=analysis) | summarize([],[],analysis,[])
             events = [dict(r) | {'question': json.loads(r['body_json'])} for r in db.execute('SELECT * FROM review_events WHERE student_id=? ORDER BY id', (s['id'],))]
+            assignment_dates.attach_events(db,events)
             retests = [dict(r) for r in db.execute('SELECT * FROM retests WHERE student_id=? ORDER BY created_at,id', (s['id'],))]
             latest=self._latest(db,student=s['id'])
             papers=[self._paper(db,r[0]) for r in db.execute('SELECT id FROM papers WHERE student_id=?',(s['id'],))]
@@ -333,6 +339,7 @@ class Store:
                 raise ValidationError('此确认记录不属于当前学生或不存在')
             event=dict(row)
             event['question']=json.loads(event.pop('body_json'))
+            assignment_dates.attach_events(db,[event])
             paper=self._paper(db,event['paper_id'])
             latest_id=db.execute('SELECT MAX(id) FROM review_events WHERE paper_id=? AND question_id=?',
                                  (event['paper_id'],event['question_id'])).fetchone()[0]
@@ -544,6 +551,7 @@ class Store:
                     learning_journey.validate_restored(probe)
                     pilot.validate_restored(probe)
                     paper_materials.validate_restored(probe)
+                    assignment_dates.validate_restored(probe)
                     if probe.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ai_jobs'").fetchone():
                         columns={r[1] for r in probe.execute('PRAGMA table_info(ai_jobs)')}
                         if {'metadata_json','mode'}.issubset(columns):

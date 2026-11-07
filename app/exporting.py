@@ -24,6 +24,7 @@ def export_content(store, kind, ident, audience, version=None):
             raise ConflictError('导出版本已变化，请重新打开导出')
         state = '已确认' if p['confirmed_version'] == p['version'] else '待审草稿'
         blocks = [('text', f'{p["student_name"]} · {p["batch_id"]} · V{p["version"]} · {state} · 教师专用')]
+        blocks.append(('text','作业日期：' + (p.get('assignment_date') or '未提供') + '（本卷导出版本；不同于写入时间）'))
         for q in p['questions']:
             blocks.extend([('heading', q['id'] + ' · ' + LABELS[q['result']]), ('math', q['stem']),
                            ('text', '学生作答／转写：' + (q['answer'] or '未录入')), ('text', '核对答案：' + (q['correct_answer'] or '无参考')),

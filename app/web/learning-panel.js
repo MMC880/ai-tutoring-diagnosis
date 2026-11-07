@@ -5,7 +5,7 @@ function learningBasisHTML(group){
  return `<div class="notice ${linked?'':'warn'}"><strong>${linked?'按已审核知识条目归组':'标签线索（待核对关联）'}</strong><p>${linked?'同一条目跨资料版本和不同题型一起查看；其他同名条目不自动合并。':'尚未关联教学条目，当前只按相同知识名称与题型整理，不表示同一考点已经核清。'}</p>${group.knowledge_names?.length?`<p>已确认记录曾用名称：${group.knowledge_names.map(esc).join(' ／ ')}</p>`:''}${group.question_types?.length?`<p>涉及题型：${group.question_types.map(esc).join(' ／ ')}</p>`:''}<small>需要统一或修正时，回当前原卷核对知识关联，保存后重新确认；历史记录保留。</small></div>`;
 }
 function learningEvidenceNoteHTML(event){
- return `<p class="micro">当次知识：${esc(event.knowledge||'未标注')} · 题型：${esc(event.question_type||'未标注')}${event.teaching_ref?` · 资料V${esc(event.teaching_ref.version)}`:' · 无教学条目引用'}</p><small>确认时间：${esc(archiveTime(event.created_at))}；不等于实际作业日期，独立作答条件仍需老师核实。</small>`;
+ return `<p class="micro">当次知识：${esc(event.knowledge||'未标注')} · 题型：${esc(event.question_type||'未标注')}${event.teaching_ref?` · 资料V${esc(event.teaching_ref.version)}`:' · 无教学条目引用'}</p><small>作业日期：${esc(event.assignment_date||'未提供')} · 确认时间（写入）：${esc(archiveTime(event.created_at))}；不等于实际作业日期，独立作答条件仍需老师核实。</small>`;
 }
 function learningGroupsHTML(profile){
  const a=profile.learning_analysis;if(!a)return '';

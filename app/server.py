@@ -86,7 +86,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def get(self, route, query):
         if route == '/api/launch-info': return dict(application_directory=str(HERE.resolve()),data_directory=str(self.store.root))
-        if route == '/api/health': return dict(status='ok', mode='LOCAL_STORE_EXPLICIT_AI', version='0.24.0')
+        if route == '/api/health': return dict(status='ok', mode='LOCAL_STORE_EXPLICIT_AI', version='0.25.0')
         if route == '/api/bootstrap': return self.store.bootstrap() | {'csrf_token': self.server.token}
         if route == '/api/intake':
             from intake import intake_overview
@@ -156,7 +156,7 @@ class Handler(BaseHTTPRequestHandler):
             elif m[1] == 'print' and not m[4]: self.send(200, print_html(title, blocks), 'text/html; charset=utf-8')
             else: self.send(404, {'error': '路径不存在'})
             return
-        allowed = {'/': 'index.html', '/app.js': 'app.js', '/ai-panel.js':'ai-panel.js', '/vision-panel.js':'vision-panel.js','/learning-panel.js':'learning-panel.js','/tutoring-panel.js':'tutoring-panel.js','/photo-panel.js':'photo-panel.js','/continuation-panel.js':'continuation-panel.js','/grading-panel.js':'grading-panel.js','/archive-panel.js':'archive-panel.js','/report-panel.js':'report-panel.js','/pilot-panel.js':'pilot-panel.js','/intake-panel.js':'intake-panel.js','/materials-panel.js':'materials-panel.js','/review-flow.js':'review-flow.js','/class-panel.js':'class-panel.js','/followup-panel.js':'followup-panel.js','/queue-panel.js':'queue-panel.js','/teaching-panel.js':'teaching-panel.js','/teaching-catalog.js':'teaching-catalog.js', '/styles.css': 'styles.css', '/print.js': 'print.js', '/assets/synthetic-homework.png': 'assets/synthetic-homework.png'}
+        allowed = {'/': 'index.html', '/app.js': 'app.js', '/ai-panel.js':'ai-panel.js', '/vision-panel.js':'vision-panel.js','/learning-panel.js':'learning-panel.js','/tutoring-panel.js':'tutoring-panel.js','/photo-panel.js':'photo-panel.js','/continuation-panel.js':'continuation-panel.js','/grading-panel.js':'grading-panel.js','/archive-panel.js':'archive-panel.js','/report-panel.js':'report-panel.js','/date-panel.js':'date-panel.js','/pilot-panel.js':'pilot-panel.js','/intake-panel.js':'intake-panel.js','/materials-panel.js':'materials-panel.js','/review-flow.js':'review-flow.js','/class-panel.js':'class-panel.js','/followup-panel.js':'followup-panel.js','/queue-panel.js':'queue-panel.js','/teaching-panel.js':'teaching-panel.js','/teaching-catalog.js':'teaching-catalog.js', '/styles.css': 'styles.css', '/print.js': 'print.js', '/assets/synthetic-homework.png': 'assets/synthetic-homework.png'}
         if route in allowed:
             p = HERE / 'web' / allowed[route]
             if p.is_file():
@@ -164,6 +164,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send(404, {'error': '路径不存在'})
 
     def post(self, route, p):
+        m=re.fullmatch(r'/api/papers/([a-f0-9]{32})/assignment-date',route)
+        if m:
+            import assignment_dates
+            return assignment_dates.update(self.store,m[1],p)
         m=re.fullmatch(r'/api/papers/([a-f0-9]{32})/documents',route)
         if m:
             from paper_materials import update_documents

@@ -61,7 +61,7 @@ def build_learning_analysis(latest,papers,event_documents=None):
         source=dict(paper_id=paper['id'],question_id=event['question_id'],revision=event['revision'])
         ready=paper['version']==paper['confirmed_version']==event['revision']
         group['evidence'].append(source|dict(event_id=event['id'],batch_id=event['batch_id'],title=paper['title'],
-            result=event['result'],stem=q['stem'],answer=q['answer'],cause=q.get('cause',''),created_at=event['created_at'],
+            result=event['result'],assignment_date=event.get('assignment_date',''),stem=q['stem'],answer=q['answer'],cause=q.get('cause',''),created_at=event['created_at'],
             knowledge=knowledge,question_type=kind,teaching_ref=dict(reference) if reference else None,
             current_version=paper['version'],source_ready=ready,assignment_key=source_units[event['id']]))
         if event['result'] in ('INCORRECT','PARTIAL'):

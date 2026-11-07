@@ -47,6 +47,20 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.request('/records.sqlite3')[0], 404)
         self.assertEqual(self.request('/../store.py')[0], 404)
 
+    def test_assignment_date_update_has_version_and_request_guards(self):
+        self.store.confirm(self.paper['id'],1,True);count=self.store.event_count()
+        route='/api/papers/'+self.paper['id']+'/assignment-date';payload=dict(version=1,assignment_date='2026-10-20')
+        status,body,_=self.request(route,payload)
+        self.assertEqual(status,200,'作业日期接口尚未实现')
+        result=json.loads(body);self.assertEqual((result['version'],result['confirmed_version']),(2,1))
+        self.assertEqual(result['assignment_date'],'2026-10-20');self.assertEqual(self.store.event_count(),count)
+        self.assertEqual(self.request(route,payload)[0],409)
+        self.assertEqual(self.request(route,dict(version=2,assignment_date='bad'))[0],400)
+        self.assertEqual(self.request(route,dict(version=2,assignment_date=''),headers={'Origin':'https://outside.invalid'})[0],403)
+        self.assertEqual(self.request(route,dict(version=2,assignment_date=''),headers={'X-Jinxue-Token':'invalid'})[0],403)
+        self.assertEqual(self.request(route,dict(version=2,assignment_date=''))[0],200)
+        self.assertEqual(self.store.get_paper(self.paper['id'])['assignment_date'],'')
+
     def test_profile_report_preview_export_staleness_and_origin(self):
         self.store.confirm(self.paper['id'],1,True)
         student=self.paper['student_id'];path='/api/profiles/'+student+'/report'

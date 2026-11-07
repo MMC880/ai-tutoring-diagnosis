@@ -42,6 +42,7 @@ def build_profile_report(store, student_id):
         q = event['question']; p = by_paper[event['paper_id']]
         blocks.extend([('heading', f"{p['title']} · {event['batch_id']} / {event['question_id']} / R{event['revision']}"),
             ('text', f"确认记录#{event['id']} · 写入时间：{event['created_at']} · 判定：{RESULT_LABELS[event['result']]}"),
+            ('text', '作业日期：' + (event.get('assignment_date') or '未提供')),
             ('math', q['stem']), ('math', '当次原答：' + (q['answer'] or '未录入')),
             ('text', f"知识点：{q.get('knowledge') or '待标注'}；题型：{q.get('question_type') or '待标注'}；错因记录：{q.get('cause') or '未认定'}")])
         if p['version'] != p['confirmed_version']:
@@ -59,6 +60,7 @@ def build_profile_report(store, student_id):
         blocks.append(('heading', f"{exercise['question_id']} · {exercise['level']} · 练习{exercise['id']}"))
         if source:
             blocks.extend([('text', f"固定原题确认#{source['id']} / R{source['revision']}；建立时知识：{source['question'].get('knowledge') or '待标注'}"),
+                ('text', '原题当次作业日期：' + (source.get('assignment_date') or '未提供')),
                 ('math', source['question']['stem'])])
         else:
             blocks.append(('text', '固定原题来源待核实；不以当前关联倒推历史。'))
