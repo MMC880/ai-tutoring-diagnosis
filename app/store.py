@@ -12,6 +12,7 @@ import grading
 import teaching
 import learning_journey
 import pilot
+import paper_materials
 
 
 class ValidationError(ValueError):
@@ -108,7 +109,7 @@ class Store:
         with self.db() as db:
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS meta(version INTEGER NOT NULL);
-                INSERT INTO meta SELECT 1 WHERE NOT EXISTS(SELECT 1 FROM meta);
+                INSERT INTO meta(version) SELECT 1 WHERE NOT EXISTS(SELECT 1 FROM meta);
                 CREATE TABLE IF NOT EXISTS students(id TEXT PRIMARY KEY,ref TEXT UNIQUE NOT NULL,name TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS papers(id TEXT PRIMARY KEY,batch_id TEXT NOT NULL,title TEXT NOT NULL,
                     student_id TEXT NOT NULL REFERENCES students(id),version INTEGER NOT NULL DEFAULT 1,
@@ -128,6 +129,7 @@ class Store:
             self._migrate_versions(db)
 
     def _migrate_versions(self, db):
+        paper_materials.ensure_schema(db)
         pilot.ensure_schema(db)
         teaching.ensure_schema(db)
         learning_journey.ensure_schema(db)
@@ -305,7 +307,9 @@ class Store:
             papers=[self._paper(db,r[0]) for r in db.execute('SELECT id FROM papers WHERE student_id=?',(s['id'],))]
             from learning_analysis import build_learning_analysis
             from student_archive import summarize
-            analysis=build_learning_analysis(latest,papers)
+            by_paper={p['id']:p for p in papers}
+            event_documents={e['id']:paper_materials.documents_at(db,e['paper_id'],e['revision'],by_paper[e['paper_id']]['documents']) for e in latest}
+            analysis=build_learning_analysis(latest,papers,event_documents)
             return dict(student=dict(s),events=events,latest=latest,retests=retests,
                         learning_analysis=analysis,learning_journeys=learning_journey.build(self,db,s['id'],events)) | summarize(events,latest,analysis,papers)
 
@@ -326,7 +330,7 @@ class Store:
                                  (event['paper_id'],event['question_id'])).fetchone()[0]
             return dict(student=dict(student),event=event,
                         paper={k:paper[k] for k in ('id','title','batch_id','version','confirmed_version')},
-                        documents=paper['documents'],is_latest=latest_id==event_id,latest_event_id=latest_id,
+                        documents=paper_materials.documents_at(db,paper['id'],event['revision'],paper['documents']),is_latest=latest_id==event_id,latest_event_id=latest_id,
                         has_pending_revision=paper['version']!=paper['confirmed_version'],
                         teaching_reference=teaching._reference(db,event['question']['teaching_ref']) if event['question'].get('teaching_ref') else None)
 
@@ -531,6 +535,7 @@ class Store:
                     teaching.validate_restored(probe,restored)
                     learning_journey.validate_restored(probe)
                     pilot.validate_restored(probe)
+                    paper_materials.validate_restored(probe)
                     if probe.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ai_jobs'").fetchone():
                         columns={r[1] for r in probe.execute('PRAGMA table_info(ai_jobs)')}
                         if {'metadata_json','mode'}.issubset(columns):

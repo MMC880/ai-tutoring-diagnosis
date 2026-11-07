@@ -27,3 +27,5 @@ dialog.tutor-modal{overflow-wrap:anywhere}
 :root #teaching-editor-fields:disabled{opacity:.7}
 
 .intake-workspace,.intake-list,.intake-paper{min-width:0;overflow-wrap:anywhere}.intake-stats{margin-top:18px}.intake-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.intake-paper p{margin:9px 0}.intake-workspace select{width:100%;min-width:0;max-width:100%}.intake-workspace .two>*{min-width:0}.intake-paper .tag{white-space:normal}@media(max-width:900px){.intake-list{grid-template-columns:1fr}}
+
+#materials-editor{border:0;padding:0;margin:0;min-width:0}.materials-modal{overflow-wrap:anywhere}.material-row{padding:12px;border:1px solid var(--line);border-radius:7px;margin:12px 0;display:grid;gap:12px;min-width:0}.material-row strong{overflow-wrap:anywhere}.material-row .row{gap:6px}.material-row button{font-size:12px;padding:6px 9px}.material-row select{max-width:100%}#materials-context{margin-bottom:12px}#materials-error{margin:12px 0}.materials-modal input[type=file]{width:100%;min-width:0}

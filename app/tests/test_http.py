@@ -58,6 +58,20 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.request('/api/intake',{})[0],404)
         self.assertEqual(self.store.event_count(),0)
 
+    def test_material_revision_requires_consent_token_and_correct_student(self):
+        from files import save_document
+        from PIL import Image
+        raw=io.BytesIO();Image.new('RGB',(30,30),'white').save(raw,format='PNG')
+        doc=save_document(self.store.root,'合成补交.png',raw.getvalue())
+        route='/api/papers/'+self.paper['id']+'/documents'
+        payload=dict(version=1,student_id=self.paper['student_id'],documents=[doc],consent=True)
+        self.assertEqual(self.request(route,payload,{'X-Jinxue-Token':''})[0],403)
+        self.assertEqual(self.request(route,payload,{'Origin':'https://attacker.test'})[0],403)
+        self.assertEqual(self.request(route,payload|dict(consent=False))[0],400)
+        self.assertEqual(self.request(route,payload|dict(student_id='0'*32))[0],409)
+        code,body,_=self.request(route,payload)
+        self.assertEqual(code,200);self.assertEqual(json.loads(body)['version'],2);self.assertEqual(self.store.event_count(),0)
+
     def test_cross_origin_and_bad_host_rejected(self):
         self.assertEqual(self.request('/api/bootstrap', headers={'Host': 'attacker.test'})[0], 403)
         self.assertEqual(self.request('/api/bootstrap', headers={'Origin': 'https://attacker.test'})[0], 403)

@@ -7,12 +7,13 @@ from store import RESULTS
 def _label(value): return ' '.join(value.split()) if isinstance(value,str) else ''
 
 
-def build_learning_analysis(latest,papers):
+def build_learning_analysis(latest,papers,event_documents=None):
     by_paper={p['id']:p for p in papers}
     seen={}; unique=[]; duplicates=[]; photo_papers={}; source_units={}
     for event in sorted(latest,key=lambda e:e['id'],reverse=True):
         paper=by_paper[event['paper_id']]
-        photos=tuple(sorted({d['sha256'] for d in paper.get('documents',[])
+        docs=event_documents[event['id']] if event_documents is not None else paper.get('documents',[])
+        photos=tuple(sorted({d['sha256'] for d in docs
             if d.get('role','作业')=='作业' and d.get('mime') in (
                 'image/png','image/jpeg','application/pdf',
                 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')}))
