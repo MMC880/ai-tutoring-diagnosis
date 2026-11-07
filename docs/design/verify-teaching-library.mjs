@@ -66,8 +66,7 @@ try{
  await fill('.teaching-entry [data-entry-field=content]','原分母不能为零，化简后限制仍须保留。');await click('[data-action=teaching-save]');
  await click('[data-view=review]');await until("!!document.querySelector('[data-q=Q01] [data-action=teaching-link]')");
  await click('[data-q=Q01] [data-action=teaching-link]');await until("!!document.querySelector('#teaching-catalog-select')");
- await click('[data-action=teaching-bind]');
- verify('未选择条目不能默认绑定第一个',await evaluate("document.querySelector('#modal').open&&JSON.parse(document.querySelector('[data-q=Q01] [data-field=teaching_ref]').value)===null&&!dirty"));
+ verify('未选择条目不能默认绑定第一个',await evaluate("document.querySelector('[data-action=teaching-bind]').disabled&&document.querySelector('#modal').open&&JSON.parse(document.querySelector('[data-q=Q01] [data-field=teaching_ref]').value)===null&&!dirty"));
  await fill('#teaching-catalog-select','0');await click('[data-action=teaching-bind]');
  verify('知识引用只填本行待审草稿',await evaluate("JSON.parse(document.querySelector('[data-q=Q01] [data-field=teaching_ref]').value).material_id===materialId&&document.querySelector('[data-q=Q01] [data-field=knowledge]').value==='分式取值限制'&&dirty"));
  await click('[data-action=save-paper]');

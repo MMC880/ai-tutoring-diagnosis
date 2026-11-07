@@ -41,3 +41,5 @@ dialog.tutor-modal{overflow-wrap:anywhere}
 /* Teacher report preview: bounded, readable on phones. */
 .profile-report-preview{max-height:48vh;overflow:auto;border:1px solid var(--line,#ddd);border-radius:8px;padding:16px;margin:16px 0;overflow-wrap:anywhere}.profile-report-preview p{white-space:pre-wrap}.profile-report-preview h3{margin-top:20px}#profile-report{min-width:0;overflow-wrap:anywhere}#profile-report fieldset{min-width:0}
 #profile-report .field>span{display:flex;align-items:center;gap:8px}#profile-report input[type=radio],#profile-report input[type=checkbox]{width:auto;flex-shrink:0}
+
+.teaching-catalog-modal{max-width:760px}#teaching-catalog{min-width:0;overflow-wrap:anywhere}#teaching-catalog select{min-width:0;max-width:100%}#teaching-catalog-preview{margin-top:16px;max-height:35vh;overflow:auto;padding:12px;border:1px solid var(--line);border-radius:8px}#teaching-catalog-preview pre{white-space:pre-wrap;overflow-wrap:anywhere}

@@ -88,18 +88,8 @@ async function teachingHandle(action,button){
   // editor is locked before the next await, including after the POST reply.
   await render();toast(saved.status==='APPROVED'?'本版资料已审核，可用于关联。':'资料草稿已保存，请核对后审核。');return;
  }
- if(action==='teaching-bind'){
-  const picker=teachingPicker;
-  if(!picker||picker.epoch!==renderEpoch||paperId!==picker.paperId||paper()?.version!==picker.version||dirty)throw Error('原卷或修改已变化，请重新选择引用');
-  const selected=$('#teaching-catalog-select').value;
-  if(!/^[0-9]+$/.test(selected))throw Error('请选择一个已审核知识条目');
-  const entry=picker.entries[Number(selected)];if(!entry)throw Error('请选择一个已审核知识条目');
-  const row=$$('#questions .question').find(el=>el.dataset.q===picker.questionId);if(!row)throw Error('目标题号已变化');
-  $('[data-field=teaching_ref]',row).value=JSON.stringify(entry.reference);$('[data-field=knowledge]',row).value=entry.knowledge;
-  $('.teaching-linked',row).textContent=`${entry.knowledge} · ${entry.source_title} / V${entry.source_version} · ${entry.locator}（本行待保存）`;
-  $('[data-action=teaching-show]',row).disabled=false;$('[data-action=teaching-unlink]',row).disabled=false;
-  gradingInput($('[data-field=knowledge]',row));changed();close();teachingPicker=null;toast('已关联本题待审草稿；请保存后完成整卷核对。');return;
- }
+ if(action==='teaching-bind')return teachingCatalogBind();
+ if(action.startsWith('teaching-catalog-'))return teachingCatalogHandle(action);
  const row=button.closest('#questions .question');if(!row)throw Error('请从当前原卷选择题目');
  const p=paper(),epoch=renderEpoch,questionId=row.dataset.q;
  const current=()=>epoch===renderEpoch&&view==='review'&&paperId===p.id&&paper()?.version===p.version&&row.isConnected;
@@ -109,9 +99,9 @@ async function teachingHandle(action,button){
  }
  if(action==='teaching-link'){
   if(dirty)throw Error('请先保存原卷修改，再选择教学引用');
-  const entries=await api('teaching/catalog');if(!current()||dirty)throw Error('原卷已变化，请重新选择');
-  teachingPicker={entries,paperId:p.id,version:p.version,questionId,epoch};
-  modal(`<h2>${esc(questionId)} · 关联已审核教学资料</h2><p>选择后只填本题待审草稿，不确认学生成绩；新资料请先在教学资料库核对审核。</p>${entries.length?`<label class="field"><span>知识条目及固定资料版本</span><select id="teaching-catalog-select"><option value="">请选择</option>${entries.map((entry,i)=>`<option value="${i}">${esc(entry.knowledge)} · ${esc(entry.source_title)} / V${entry.source_version} · ${esc(entry.locator)}${entry.is_current?'':'（历史已审核）'}</option>`).join('')}</select></label><button data-action="teaching-bind" class="primary">关联到本题待审草稿</button>`:'<p class="notice">当前没有老师已审核的教学条目。</p>'}<button data-action="close">取消</button>`);return;
+  const edits=reviewFlowEdits;
+  const entries=await api('teaching/catalog');if(!current()||dirty||edits!==reviewFlowEdits)return;
+  teachingCatalogOpen(entries,{paperId:p.id,version:p.version,questionId,epoch});return;
  }
  if(action==='teaching-show'){
   const refText=$('[data-field=teaching_ref]',row).value,ref=JSON.parse(refText);if(!ref)throw Error('本题尚未关联资料');
