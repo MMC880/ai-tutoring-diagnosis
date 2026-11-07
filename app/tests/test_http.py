@@ -47,6 +47,21 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.request('/records.sqlite3')[0], 404)
         self.assertEqual(self.request('/../store.py')[0], 404)
 
+    def test_practice_queue_is_read_only_metadata_and_origin_protected(self):
+        self.store.confirm(self.paper['id'],1,True)
+        self.store.create_exercise(dict(paper_id=self.paper['id'],question_id='Q01',
+            level='基础巩固',stem='合成练习',answer='秘密答案',explanation='秘密讲解'))
+        before=self.store.event_count()
+        code,body,_=self.request('/api/practice-queue')
+        self.assertEqual(code,200)
+        result=json.loads(body)
+        self.assertEqual(result['counts']['REVIEW_DRAFT'],1)
+        self.assertNotIn('answer',result['items'][0])
+        self.assertNotIn('秘密答案',body.decode())
+        self.assertEqual(self.request('/api/practice-queue',headers={'Origin':'https://attacker.test'})[0],403)
+        self.assertEqual(self.request('/api/practice-queue',{})[0],404)
+        self.assertEqual(self.store.event_count(),before)
+
     def test_intake_is_read_only_metadata_and_origin_protected(self):
         code,body,_=self.request('/api/intake')
         self.assertEqual(code,200)

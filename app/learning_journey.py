@@ -36,6 +36,16 @@ def validate_restored(db):
             if body.get('source_event_id')!=row['source_event_id'] or body.get('source_revision')!=row['revision']:
                 raise ValidationError('复测快照的原题依据不一致')
 
+def retest_observation(retests,approved):
+    if not retests:return 'WAITING_RETEST' if approved else 'WAITING_APPROVAL'
+    last=retests[-1]
+    if last['result'] in ('PENDING','MISSING') or not last['answer'].strip():return 'RETEST_UNRESOLVED'
+    if last['condition']=='完成条件待核实':return 'CONDITION_UNCONFIRMED'
+    if last['result'] in ('INCORRECT','PARTIAL'):return 'NEEDS_REVIEW'
+    if last['condition']!='独立完成':return 'NEEDS_INDEPENDENT_RETEST'
+    return 'INDEPENDENT_CORRECT_OBSERVE'
+
+
 def build(store,db,student_id,events):
     by_event={e['id']:e for e in events};latest={}
     for event in events:latest[(event['paper_id'],event['question_id'])]=event['id']
@@ -46,14 +56,7 @@ def build(store,db,student_id,events):
         retests=[]
         for r in db.execute('SELECT * FROM retests WHERE exercise_id=? AND student_id=? ORDER BY rowid',(e['id'],student_id)):
             retests.append(dict(r)|dict(exercise_snapshot=json.loads(r['snapshot_json'])))
-        observation='WAITING_RETEST' if any(v['status']=='APPROVED' for v in versions) else 'WAITING_APPROVAL'
-        if retests:
-            last=retests[-1]
-            if last['result'] in ('PENDING','MISSING') or not last['answer'].strip():observation='RETEST_UNRESOLVED'
-            elif last['condition']=='完成条件待核实':observation='CONDITION_UNCONFIRMED'
-            elif last['result'] in ('INCORRECT','PARTIAL'):observation='NEEDS_REVIEW'
-            elif last['condition']!='独立完成':observation='NEEDS_INDEPENDENT_RETEST'
-            else:observation='INDEPENDENT_CORRECT_OBSERVE'
+        observation=retest_observation(retests,any(v['status']=='APPROVED' for v in versions))
         result.append(dict(exercise=e,versions=versions,source=source,retests=retests,observation=observation,
             current_draft=e['status']!='APPROVED',
             source_has_later_confirmation=bool(source and latest.get((e['paper_id'],e['question_id']))!=source['id'])))
