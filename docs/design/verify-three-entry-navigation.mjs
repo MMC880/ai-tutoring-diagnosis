@@ -48,8 +48,8 @@ try{
  })()`);
  // Each legacy URL must still render its own page after a full reload, under the right parent.
  for(const [route,parent,selector] of [['review','intake','#questions'],['practice','profile','.practice-grid'],['queue','profile','.queue-workspace'],['intake','intake','.intake-workspace'],['class','class','.stats'],['ai','settings','#ai-key'],['teaching','settings','main .panel'],['backup','settings','main .panel'],['pilot','settings','main .panel']]){
-  await command('Page.navigate',{url:base+'/?legacy-check='+route+'#'+route});await until(`!!document.querySelector(${JSON.stringify(selector)})`);
-  verify('旧链接 #'+route+' 保留页面及所属入口',await evaluate(`location.hash===${JSON.stringify('#'+route)}&&document.querySelector('.teacher-shell')?.dataset.workspace===${JSON.stringify(parent)}&&${parent==='settings'?"document.querySelector('.settings-nav [data-view=settings]')":"document.querySelector('.main-nav [data-view="+parent+"]')"}.getAttribute('aria-current')==='page'`));
+  await command('Page.navigate',{url:base+'/?legacy-check='+route+'#'+route});await until(`!!document.querySelector(${JSON.stringify(['review','practice','class'].includes(route)?'main .empty':selector)})`);
+  verify('旧链接 #'+route+' 保留页面及所属入口',await evaluate(`location.hash===${JSON.stringify('#'+route)}&&document.querySelector('.teacher-shell')?.dataset.workspace===${JSON.stringify(parent)}&&${parent==='settings'?"document.querySelector('.settings-nav [data-view=settings]')":"document.querySelector('.main-nav [data-view="+(parent==='intake'?'registration':parent)+"]')"}.getAttribute('aria-current')==='page'`));
  }
  await click('.main-nav [data-view=profile]');await until("!!document.querySelector('#profile-content')");
  const choose=id=>click('[data-action=archive-select][data-student="'+id+'"]');
@@ -68,21 +68,21 @@ try{
  await evaluate("document.querySelector('#toast').classList.remove('show')");await capture('01-three-entry-desktop.png');
  await click('.workspace-subnav [data-view=queue]');await until("!!document.querySelector('.queue-workspace')");
  verify('补练待办从档案内部可达并明示全体范围',await evaluate("document.querySelector('.main-nav [data-view=profile]').getAttribute('aria-current')==='page'&&document.querySelector('.workspace-subnav').textContent.includes('全部学生')"));
- await click('.main-nav [data-view=intake]');await until("!!document.querySelector('#intake-batch')");
+ await click('.main-nav [data-view=registration]');await until("!!document.querySelector('#registration-page')");await click('.workspace-subnav [data-view=intake]');await until("!!document.querySelector('#intake-batch')");
  const batch=await evaluate(`api('papers/'+${JSON.stringify(fixture.a)}).then(p=>p.batch_id)`);await fill('#intake-batch',batch);
  await until(`!!document.querySelector('.intake-paper[data-paper="${fixture.a}"]')`);
  await click(`.intake-paper[data-paper="${fixture.a}"] [data-action=intake-open]`);await until("!!document.querySelector('#questions')");
- verify('登记进入原整卷核对且仍归登记作业',await evaluate(`document.querySelector('#paper-select').value===${JSON.stringify(fixture.a)}&&document.querySelector('.main-nav [data-view=intake]').getAttribute('aria-current')==='page'`));
+ verify('登记进入原整卷核对且仍归登记作业',await evaluate(`document.querySelector('#paper-select').value===${JSON.stringify(fixture.a)}&&document.querySelector('.main-nav [data-view=registration]').getAttribute('aria-current')==='page'`));
  await fill('#questions .question [data-field=answer]','尚未保存的导航测试作答');
  await command('Page.enable');let acceptDialog=false;ws.addEventListener('message',ev=>{const m=JSON.parse(ev.data);if(m.method==='Page.javascriptDialogOpening')command('Page.handleJavaScriptDialog',{accept:acceptDialog}).catch(()=>{});});
  await click('.settings-nav [data-view=settings]');
- verify('取消进入设置保留审核草稿与原页面',await evaluate("!!document.querySelector('#questions')&&document.querySelector('#questions .question [data-field=answer]').value==='尚未保存的导航测试作答'&&document.querySelector('.main-nav [data-view=intake]').getAttribute('aria-current')==='page'"));
+ verify('取消进入设置保留审核草稿与原页面',await evaluate("!!document.querySelector('#questions')&&document.querySelector('#questions .question [data-field=answer]').value==='尚未保存的导航测试作答'&&document.querySelector('.main-nav [data-view=registration]').getAttribute('aria-current')==='page'"));
  await click('[data-action=save-paper]');await until("document.querySelector('#toast').textContent.includes('草稿已保存')");
  await click('.settings-nav [data-view=settings]');await until("!!document.querySelector('#workspace-settings')");
- await click('.main-nav [data-view=intake]');await until("!!document.querySelector('#intake-batch')");await click('.workspace-subnav [data-view=review]');await until("!!document.querySelector('#questions')");
+ await click('.main-nav [data-view=registration]');await until("!!document.querySelector('#registration-page')");await click('.workspace-subnav [data-view=intake]');await until("!!document.querySelector('#intake-batch')");await click('.workspace-subnav [data-view=review]');await until("!!document.querySelector('#questions')");
  verify('已保存草稿跨入口往返可回读',await evaluate("document.querySelector('#questions .question [data-field=answer]').value==='尚未保存的导航测试作答'"));
  await click('.workspace-subnav [data-view=practice]');await until("!!document.querySelector('#ex-stem')");await fill('#ex-explanation','尚未保存的补练讲解');
- await click('.main-nav [data-view=intake]');
+ await click('.main-nav [data-view=registration]');
  verify('取消切入口保留练习编辑和审批限制',await evaluate("document.querySelector('#ex-explanation')?.value==='尚未保存的补练讲解'&&document.querySelector('[data-action=approve-exercise]').disabled&&document.querySelector('.main-nav [data-view=profile]').getAttribute('aria-current')==='page'"));
  acceptDialog=true;await click('.main-nav [data-view=profile]');await until("document.querySelector('#profile-content')?.dataset.state==='ready'");
  // Hold an actual profile response while the teacher leaves through the new settings entry.

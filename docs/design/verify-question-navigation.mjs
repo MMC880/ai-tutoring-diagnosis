@@ -2,7 +2,7 @@
 import {spawn} from 'node:child_process';
 import {mkdtemp,readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
-import {revealViewControl} from './teacher-browser-navigation.mjs';
+import {revealViewControl,openRegistrationPaper} from './teacher-browser-navigation.mjs';
 const project=path.resolve(import.meta.dirname,'../..');
 const output=path.join(project,'docs/design/question-navigation-browser');await mkdir(output,{recursive:true});
 const tempBase=path.join(project,'app/.qa-temp');await mkdir(tempBase,{recursive:true});
@@ -80,10 +80,10 @@ try{
  await click('[data-action=questions-refresh]');await click('[data-action=save-paper]');await until('!dirty&&paper().questions.length===7');
  verify('隐藏新增题同样保存',await evaluate("paper().questions.find(q=>q.id==='Q07').answer==='新增原答'"));
  await fill('#question-nav-filter','wrong');await evaluate("globalThis.oldQuestionNavButton=document.querySelector('[data-action=questions-refresh]')");
- await fill('#paper-select',await evaluate('navFixture.b.id'));await until("paper().id===navFixture.b.id&&!!document.querySelector('[data-q=B01]')");
+ await openRegistrationPaper(await evaluate('navFixture.b.id'),{evaluate,click,until});await until("paper().id===navFixture.b.id&&!!document.querySelector('[data-q=B01]')");
  verify('切学生重置筛选与题号不串档',await evaluate("document.querySelector('#question-nav-filter').value==='all'&&document.querySelectorAll('#question-nav-target option').length===2&&!document.querySelector('[data-q=B01]').hidden&&collectQuestions()[0].answer==='乙生原答'"));
  verify('旧工具条操作拒绝影响新学生',await evaluate("(()=>{try{questionNavigationHandle('questions-refresh',oldQuestionNavButton);return false}catch{return !document.querySelector('[data-q=B01]').hidden}})()"));
- await fill('#paper-select',await evaluate('navFixture.a.id'));await until("paper().id===navFixture.a.id&&!!document.querySelector('[data-q=Q07]')");await fill('#question-nav-filter','wrong');await evaluate("document.querySelector('#question-navigation').scrollIntoView({block:'start'})");await capture('01-question-navigation-desktop.png');
+ await openRegistrationPaper(await evaluate('navFixture.a.id'),{evaluate,click,until});await until("paper().id===navFixture.a.id&&!!document.querySelector('[data-q=Q07]')");await fill('#question-nav-filter','wrong');await evaluate("document.querySelector('#question-navigation').scrollIntoView({block:'start'})");await capture('01-question-navigation-desktop.png');
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await evaluate("document.querySelector('#question-navigation').scrollIntoView({block:'start'})");await capture('02-question-navigation-mobile.png');
  verify('390px整卷筛选无横向溢出',await evaluate("document.documentElement.scrollWidth<=innerWidth"));
  verify('无模型请求与页面异常',requests.every(r=>!r.url.endsWith('/prepare')&&!r.url.endsWith('/send'))&&pageErrors.length===0);

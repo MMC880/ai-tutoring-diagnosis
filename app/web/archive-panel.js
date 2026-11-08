@@ -4,10 +4,10 @@ let profileStudentId='',archiveSearch='',archiveLoading=false,archiveError='';
 function archiveIsCurrent(studentId){
  return view==='profile'&&profileStudentId===studentId&&currentProfile?.student?.id===studentId;
 }
-function archiveStudentList(){
+function archiveStudentList(action='archive-select'){
  const query=archiveSearch.trim().toLocaleLowerCase();
  const students=data.students.filter(s=>`${s.name} ${s.ref}`.toLocaleLowerCase().includes(query));
- return students.map(s=>`<button class="student-choice ${s.id===profileStudentId?'selected':''}" data-action="archive-select" data-student="${esc(s.id)}" aria-pressed="${s.id===profileStudentId}"><strong>${esc(s.name)}</strong><small>${esc(s.ref)}</small></button>`).join('')||'<p class="muted">没有匹配的学生，请换个姓名或编号。</p>';
+ return students.map(s=>`<button class="student-choice ${s.id===profileStudentId?'selected':''}" data-action="${esc(action)}" data-student="${esc(s.id)}" aria-pressed="${s.id===profileStudentId}"><strong>${esc(s.name)}</strong><small>${esc(s.ref)}</small></button>`).join('')||'<p class="muted">没有匹配的学生，请换个姓名或编号。</p>';
 }
 function archiveContent(){
  if(!data.students.length)return `<section class="panel empty"><h2>暂无学生</h2><p>收一份作业后，学生会出现在名单里。</p><button class="primary" data-action="new">收一份作业</button> <button data-action="seed">试一份四题合成样例</button></section>`;
@@ -17,9 +17,10 @@ function archiveContent(){
  if(archiveError)return `<section class="panel empty" role="alert"><h2>档案读取失败</h2><p>${esc(student?.name)} · ${esc(student?.ref)}</p><p>${esc(archiveError)}</p><button data-action="archive-retry">重试当前学生</button></section>`;
  return archiveProfilePage();
 }
+function archiveRosterHTML(action='archive-select'){return `<aside class="panel student-roster" aria-label="学生名单"><h2>找学生</h2><label class="field"><span>姓名或学生编号</span><input id="profile-student-search" type="search" value="${esc(archiveSearch)}" placeholder="搜索姓名或编号" autocomplete="off"></label><p class="micro muted">${data.students.length} 名学生 · 重名请核对编号</p><div id="profile-student-list">${data.students.length?archiveStudentList(action):'<p class="muted">收件后显示学生</p>'}</div></aside>`;}
 function archivePage(){
  const state=archiveLoading?'loading':archiveError?'error':currentProfile?'ready':'empty';
- return `<div class="student-archive-layout"><aside class="panel student-roster" aria-label="学生名单"><h2>找学生</h2><label class="field"><span>姓名或学生编号</span><input id="profile-student-search" type="search" value="${esc(archiveSearch)}" placeholder="搜索姓名或编号" autocomplete="off"></label><p class="micro muted">${data.students.length} 名学生 · 重名请核对编号</p><div id="profile-student-list">${data.students.length?archiveStudentList():'<p class="muted">收件后显示学生</p>'}</div></aside><section id="profile-content" data-student="${esc(profileStudentId)}" data-state="${state}" aria-label="所选学生的学习档案" aria-busy="${archiveLoading}">${archiveContent()}</section></div>`;
+ return `<div class="student-archive-layout">${archiveRosterHTML()}<section id="profile-content" data-student="${esc(profileStudentId)}" data-state="${state}" aria-label="所选学生的学习档案" aria-busy="${archiveLoading}">${archiveContent()}</section></div>`;
 }
 async function archiveLoad(epoch,studentId){
  const current=()=>epoch===renderEpoch&&view==='profile'&&profileStudentId===studentId;

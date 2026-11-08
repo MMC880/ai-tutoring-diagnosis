@@ -2,7 +2,7 @@
 import {spawn} from 'node:child_process';
 import {mkdtemp,readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
-import {revealViewControl} from './teacher-browser-navigation.mjs';
+import {revealViewControl,openRegistrationPaper} from './teacher-browser-navigation.mjs';
 const project=path.resolve(import.meta.dirname,'../..');
 const output=path.join(project,'docs/design/review-flow-browser');await mkdir(output,{recursive:true});
 const tempBase=path.join(project,'app/.qa-temp');await mkdir(tempBase,{recursive:true});
@@ -86,7 +86,7 @@ try{
  await evaluate("(async()=>{const q=structuredClone(paper().questions);await api('papers',{student_ref:'SYN-F05',student_name:'合成F05',batch_id:'SYN-REVIEW',title:'新增候选',questions:q})})()");await click('[data-action=review-flow-refresh]');await until("document.querySelector('#review-flow').textContent.includes('SYN-F05')");
  await evaluate("(async()=>{const r=await api('intake'),b=r.batches.find(x=>x.batch_id==='SYN-REVIEW'),p=b.papers.find(x=>x.student_ref==='SYN-F05');await api('papers/'+p.id+'/confirm',{version:p.version,consent:true})})()");await click('[data-action=review-flow-next]');await delay(150);
  verify('点击前显示候选已确认时不改跳其他学生',await evaluate("paperId===flowFixture.b&&document.querySelector('#review-flow').textContent.includes('目标卷已更新')"));
- await fill('#paper-select',await evaluate('flowFixture.d'));await until("paperId===flowFixture.d&&document.querySelector('[data-review-flow=received]')?.textContent==='1'");
+ await openRegistrationPaper(await evaluate('flowFixture.d'),{evaluate,click,until});await until("paperId===flowFixture.d&&document.querySelector('[data-review-flow=received]')?.textContent==='1'");
  verify('不跨批次寻找待审学生',await evaluate("document.querySelector('[data-action=review-flow-next]').disabled&&document.querySelector('#review-flow').textContent.includes('SYN-OTHER')"));
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await evaluate("document.querySelector('#review-flow').scrollIntoView({block:'start'})");await capture('02-review-flow-mobile.png');verify('窄屏进度与按钮无横向溢出',await evaluate("document.documentElement.scrollWidth<=innerWidth"));
  verify('连续导航不发送AI且无页面异常',requests.every(u=>!u.endsWith('/prepare')&&!u.endsWith('/send'))&&pageErrors.length===0);

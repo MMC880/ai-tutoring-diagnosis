@@ -34,6 +34,7 @@ try{
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url:base});await until("typeof data!=='undefined'&&data&&document.querySelector('[data-action=seed]')");
 
+ await click('.main-nav [data-view=registration]');await until("!!document.querySelector('#registration-page')");
  verify('批次收件入口存在',await evaluate("!!document.querySelector('[data-view=intake]')"));
  await click('[data-view=intake]');await until("!!document.querySelector('#intake-empty')");
  verify('空库不捏造应收人数或未交学生',await evaluate("document.querySelector('#intake-empty').textContent.includes('尚未收到')&&!document.querySelector('#intake-batch')"));
