@@ -18,6 +18,12 @@ async function learningHandle(action,el){
  const group=currentProfile?.learning_analysis?.groups.find(g=>g.id===el.dataset.group);
  if(!group)throw Error('这组记录已变化，请刷新个人档案');
  const profile=currentProfile,epoch=renderEpoch,studentId=profile.student.id;
+ if(action==='learning-focus'){
+  if(view!=='profile'||!archiveIsCurrent(studentId))throw Error('当前学生已变化，请重新选择');
+  const target=$$('.learning-group').find(e=>e.dataset.group===group.id);
+  if(!target)throw Error('知识问题已变化，请重新读取档案');
+  target.tabIndex=-1;target.scrollIntoView({block:'start'});target.focus({preventScroll:true});return;
+ }
  let source=action==='learning-practice'?group.practice_source:group.review_source;
  if(action==='learning-open')source=group.evidence.find(e=>e.paper_id===el.dataset.paper&&e.question_id===el.dataset.question);
  if(!source)throw Error('没有可用的来源记录，请先核对原卷');

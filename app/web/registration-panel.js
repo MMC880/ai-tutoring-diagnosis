@@ -1,4 +1,8 @@
 'use strict';
+function newPaperFormHTML(){
+ const student=view==='registration'?data.students.find(s=>s.id===profileStudentId):null;
+ return `<section class="new-paper-form"><div class="new-paper-head"><h2>登记一份学生作业</h2><p class="form-hint">以老师的批改结果为准，创建后先保留待审。</p></div><div class="new-paper-body"><div class="two"><label class="field"><span>学生编号</span><input id="new-ref" name="student-ref" autocomplete="off" placeholder="例如 S001" maxlength="60" value="${esc(student?.ref||'')}"></label><label class="field"><span>学生称呼</span><input id="new-name" name="student-name" autocomplete="off" placeholder="例如 学生01" maxlength="100" value="${esc(student?.name||'')}"></label></div><label class="field"><span>作业标题</span><input id="new-title" name="assignment-title" autocomplete="off" placeholder="例如 二次函数周测" maxlength="160"></label><label class="field"><span>同次作业编号</span><input id="new-batch" name="assignment-batch" autocomplete="off" placeholder="例如 数学周测-1108" maxlength="100"><small>同一次作业的学生用同一编号；不同作业请区分。</small></label><label class="field"><span>学生作业原件（可多选，每个不超过15MB）</span><input id="new-files" type="file" multiple accept=".png,.jpg,.jpeg,.pdf,.docx"></label><details class="new-paper-options"><summary>日期与参考答案（选填）</summary>${dateFieldHTML()}<label class="field"><span>老师提供的原题／参考答案（选填）</span><input id="new-references" type="file" multiple accept=".png,.jpg,.jpeg,.pdf,.docx"></label></details><p class="micro muted">也可先不附原件，创建手工录入草稿。附件保存到本机，不自动识别或归档。</p></div><div class="actions new-paper-actions"><button data-action="close">取消</button><button class="primary" data-action="create-paper" id="create-paper">创建待录入草稿</button></div></section>`;
+}
 function registrationReviewMatchesStudent(){return !!paper()&&paper().student_id===profileStudentId;}
 function registrationNavigationAllowed(target){
  if(view==='registration'&&target==='review'&&!registrationReviewMatchesStudent()){
@@ -38,7 +42,7 @@ async function registrationHandle(action,element){
  view='review';history.replaceState(null,'','#review');await render();
 }
 function registrationReviewContext(p){
- return `<section class="panel registration-context" id="registration-context"><div class="panel-head"><div><h2>${esc(p.student_name)} · ${esc(p.title)}</h2><p>学生编号：${esc(p.student_ref)} · 作业批次：${esc(p.batch_id)} · V${p.version} · ${status(p)}</p></div><button data-action="registration-choose" data-paper="${esc(p.id)}" data-student="${esc(p.student_id)}">更换学生或作业</button></div>${dateSummaryHTML(p)}<p class="notice warn registration-coverage">登记范围未标明，不代表整卷全部结果。保存和确认仍针对本份作业中登记的全部题目；不能把未录题目当作正确。</p></section>`;
+ return `<section class="panel registration-context" id="registration-context"><div class="panel-head"><div><h2>${esc(p.student_name)} · ${esc(p.student_ref)}</h2><p>作业批次：${esc(p.batch_id)} · V${p.version} · ${status(p)}</p></div><button data-action="registration-choose" data-paper="${esc(p.id)}" data-student="${esc(p.student_id)}">更换学生或作业</button></div><div class="registration-controls"><label class="workspace-paper-picker"><span>当前学生的作业</span>${workspacePaperSelectHTML(p)}</label>${dateSummaryHTML(p)}</div><p class="notice warn registration-coverage">登记范围未标明，不代表整卷全部结果。保存和确认针对已登记的全部题目；未录题目不计为正确。</p></section>`;
 }
 function registrationQuestionPreview(q){
  return `<p class="registration-preview-stem">${esc(q.stem)}</p><p>原答摘要：${esc(q.answer||'未录入')}<br>原卷老师判定：${esc(labels[q.teacher_result]||'未录入／不清楚')}</p>`;

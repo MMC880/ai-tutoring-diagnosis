@@ -16,6 +16,14 @@ function workspaceSubnavigationHTML(){
  if(!links.length)return '';
  return `<nav class="workspace-subnav" aria-label="当前功能的子入口">${links.map(([page,label])=>workspaceButton(page,label)).join('')}</nav>`;
 }
+function workspacePaperSelectHTML(p){
+ const papers=data.papers.filter(x=>view!=='review'||!p||x.student_id===p.student_id);
+ return `<select id="paper-select" aria-label="${view==='review'?'选择当前学生的作业':view==='class'?'选择统计作业所属的学生卷子':'选择学生作业'}"><option value="">选择学生作业</option>${papers.map(x=>`<option value="${x.id}" ${x.id===paperId?'selected':''}>${esc(x.title)} / ${esc(x.batch_id)}${view==='review'?'':' / '+esc(x.student_name)+'（'+esc(x.student_ref)+'）'} / ${status(x)}</option>`).join('')}</select>`;
+}
+function workspacePaperToolbarHTML(p){
+ if(['registration','intake','queue','profile','review'].includes(view)||workspaceGroups[view]==='settings')return '';
+ return `<div class="toolbar"><label class="workspace-paper-picker"><span>${view==='class'?'统计作业':'当前整卷'}</span>${workspacePaperSelectHTML(p)}</label>${view==='class'?'<span class="micro muted">按所选卷所属的同次作业统计，包含该次作业的其他学生。</span>':`${p?`<span class="tag">V${p.version} · ${status(p)}</span>`:''}<span style="margin-left:auto" class="micro muted">${data.students.length} 名学生 · ${data.event_count} 条原卷确认历史</span>`}</div>`;
+}
 function workspaceSettingsPage(){
  const items=[['ai','AI 服务','填写本机接口设置，按需辅助核对。发送材料前仍须逐次预览和授权。'],['teaching','教学资料','整理老师提供的资料，核对后关联到学生的具体问题。'],['backup','本地资料与备份','查看资料位置，创建或恢复备份。恢复仍需明确确认。'],['pilot','试点记录','记录处理时间和工作量，核实软件是否真正省时。']];
  return `<section id="workspace-settings"><p class="form-hint">日常先找学生、登记作业、看班级学情。这里集中管理辅助工具与本机资料。</p><div class="settings-grid">${items.map(([page,title,description])=>`<section class="panel"><h2>${title}</h2><p>${description}</p>${workspaceButton(page,'打开'+title)}</section>`).join('')}</div></section>`;

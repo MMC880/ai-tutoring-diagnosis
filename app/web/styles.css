@@ -67,4 +67,36 @@ dialog.tutor-modal{overflow-wrap:anywhere}
 
 .registration-actions{display:flex;justify-content:flex-end;margin-bottom:12px}
 
+/* Teacher priorities precede counts; historical evidence remains available below. */
+#profile-content .archive-summary{padding:16px 20px;margin-bottom:12px}
+.archive-summary .panel-head{align-items:flex-start;margin-bottom:6px}.archive-summary .panel-head h2{font-size:16px}.archive-summary .panel-head p{margin-top:4px}
+.archive-status-line{color:var(--muted);font-size:12px}.archive-count-details{margin-top:6px}.archive-count-details summary,.archive-statistics>summary{color:var(--teal);cursor:pointer;font-size:12px}
+#archive-priorities{padding:16px 20px;margin-bottom:12px}#archive-priorities .panel-head{margin-bottom:8px}
+.archive-priority{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--line);min-width:0;overflow-wrap:anywhere}.archive-priority>div{min-width:0}.archive-priority p{margin-top:5px}.archive-priority button{flex-shrink:0}.archive-priority-note{margin-top:8px}.archive-statistics{margin:12px 0 16px}.archive-statistics .stats{margin-top:10px}
+.learning-group:focus{outline:2px solid var(--teal);outline-offset:3px}.learning-group{scroll-margin-top:18px}
+button:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid var(--teal);outline-offset:3px}
+@media(max-width:800px){.archive-priority{align-items:flex-start;flex-direction:column;gap:8px}.archive-summary .panel-head{flex-wrap:wrap}.archive-priority button{min-height:40px}#profile-content .archive-summary,#archive-priorities{padding:14px}}
+
 #registration-context{padding:16px 20px}#registration-context>.panel-head{margin-bottom:10px}#registration-context #assignment-date-summary{padding:0;border:0;border-radius:0;margin:0}#registration-context #assignment-date-summary .panel-head{margin-bottom:4px}#registration-context #assignment-date-summary h2{font-size:13px;font-weight:400}#registration-context #assignment-date-summary button{padding:4px 9px;font-size:12px}#registration-context .registration-coverage{padding:7px 10px;margin:8px 0}#registration-context .registration-batch-progress{border:0;margin:0}#registration-context .registration-batch-progress>summary{padding:5px 0}.registration-find{margin:0 0 12px}.registration-find>summary{color:var(--teal);font-size:12px;cursor:pointer;padding:5px 0}.registration-review>.panel{margin-top:12px}.registration-review>.panel>.panel-head{margin-bottom:8px}.registration-review .question-navigation{margin-top:10px}
+
+/* Review starts with the student's work, without repeating a second global picker. */
+.teacher-shell[data-page=review]>.body>header{padding-top:8px;padding-bottom:8px}.teacher-shell[data-page=review]>.body>header .eyebrow,.teacher-shell[data-page=review]>.body>header small{display:none}.teacher-shell[data-page=review]>.body>header h1{font-size:20px}
+.teacher-shell[data-page=review] .workspace-subnav{padding-top:6px;padding-bottom:6px}.teacher-shell[data-page=review] .workspace{padding-top:4px}
+.workspace-paper-picker{display:flex;align-items:center;gap:10px;min-width:0}.workspace-paper-picker>span{flex-shrink:0;color:var(--muted);font-size:12px}.workspace-paper-picker select{min-width:0;max-width:100%}
+.registration-controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}.registration-controls .workspace-paper-picker{display:block}.registration-controls .workspace-paper-picker>span{display:block;margin-bottom:3px}.registration-controls select{width:100%;padding:6px 9px;font-size:12px}
+#registration-context{padding:12px 16px}#registration-context>.panel-head{margin-bottom:6px}#registration-context>.panel-head h2{font-size:16px}#registration-context>.panel-head p{font-size:12px;color:var(--muted)}#registration-context .registration-coverage{font-size:11px;padding:5px 8px;margin:6px 0}#registration-context #assignment-date-summary .panel-head{flex-wrap:wrap;gap:4px}
+.teacher-shell[data-page=review] .registration-original{margin-bottom:8px}.teacher-shell[data-page=review] .registration-original>summary{padding:8px 14px}.teacher-shell[data-page=review] .registration-review>.panel{padding-top:12px}
+.registration-review>.panel>.form-hint{margin-top:6px;margin-bottom:6px}.registration-review>.panel>.panel-head{margin-bottom:4px}.registration-review>.panel>.panel-head button{padding:6px 11px;font-size:12px}.registration-review .registration-find{margin-bottom:8px}.registration-review .registration-find>summary{padding-top:2px;padding-bottom:2px}
+@media(max-width:800px){.registration-controls{grid-template-columns:1fr;gap:8px}.workspace-paper-picker{flex-wrap:wrap;width:100%}.workspace-paper-picker select{width:100%}.teacher-shell[data-page=review]>.body>header{padding-top:6px;padding-bottom:6px}.registration-context .panel-head{gap:6px}}
+
+.class-scope h2{font-size:16px;margin-bottom:4px}.class-scope p{margin:0}.class-statistics .stat{min-width:0;overflow-wrap:anywhere}.class-statistics .stat strong{font-size:24px;line-height:1.5}.class-statistics .stat small{display:block;margin-top:4px}
+@media(max-width:800px){.class-statistics .stat strong{font-size:19px}}
+
+dialog:has(.new-paper-form){padding:0;overflow:hidden;max-height:calc(100dvh - 40px)}
+.new-paper-form{display:flex;flex-direction:column;max-height:calc(100dvh - 40px);min-height:0}
+.new-paper-head{padding:18px 24px 0;flex-shrink:0}.new-paper-head h2{margin:0 26px 6px 0}.new-paper-head .form-hint{margin-bottom:10px}
+.new-paper-body{padding:0 24px 14px;overflow-y:auto;overscroll-behavior:contain;min-height:0}.new-paper-body .field{margin-bottom:12px}.new-paper-body .field small{font-size:12px}.new-paper-body .field input:not([type=checkbox]){min-width:0;width:100%}
+.new-paper-options{margin:8px 0 12px}.new-paper-options>summary{padding:6px 0;color:var(--teal);cursor:pointer}.new-paper-options[open]>summary{margin-bottom:8px}
+.new-paper-actions{margin:0;padding:12px 24px;border-top:1px solid var(--line);background:white;flex-shrink:0}
+dialog:has(.new-paper-form)>.close{position:absolute;right:14px;top:14px;z-index:1}
+@media(max-width:800px){.new-paper-head{padding:16px 16px 0}.new-paper-body{padding:0 16px 12px}.new-paper-actions{padding:12px 16px}.new-paper-body .two{gap:0}}

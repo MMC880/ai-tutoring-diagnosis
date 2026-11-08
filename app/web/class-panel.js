@@ -1,5 +1,15 @@
 'use strict';
 let classRequestEpoch=0;
+function classSummaryPage(p){
+ const s=currentSummary,d=s.binary_denominator;
+ return `<section class="notice class-scope" aria-label="统计范围"><h2>本次作业：${esc(p.title)}</h2><p>同次作业编号：${esc(p.batch_id)}。只统计这次作业的最新已确认原卷；复测另列，草稿不进入统计。</p></section>
+ <div class="stats class-statistics">
+  <div class="card stat"><span>已确认的学生</span><strong>${s.confirmed_students}人</strong><small>已收${s.submitted_students}名学生</small></div>
+  <div class="card stat"><span>已确认错误</span><strong>${s.counts.INCORRECT}项</strong><small>${d?`可判定${d}次作答中有${s.counts.INCORRECT}次错误 · ${(s.counts.INCORRECT/d*100).toFixed(1)}%`:'暂无可判定作答，不计算错误率'}</small></div>
+  <div class="card stat"><span>其他已登记状态</span><strong>待核对${s.counts.PENDING}项</strong><small>部分正确${s.counts.PARTIAL}项，单独记录</small></div>
+  <div class="card stat"><span>材料缺失</span><strong>缺材料${s.counts.MISSING}项</strong><small>不记为不会，不计入错误率</small></div>
+ </div>${classKnowledgeHTML(s)}<section class="panel"><div class="section-head"><h2>同卷共性问题</h2><small>按原题号汇总；同次作业应使用同一张试卷</small></div><div class="table-scroll"><table><thead><tr><th>原题与知识点</th><th>正确</th><th>错误</th><th>部分正确</th><th>待核对</th><th>缺材料</th><th>错误／可判定作答</th><th>需要关注的学生</th></tr></thead><tbody>${s.rows.map(r=>`<tr><td><strong>${esc(r.id)} · ${esc(r.knowledge||'待标注')}</strong><p>${esc(r.stem)}</p></td>${Object.keys(labels).map(k=>`<td>${r.counts[k]}</td>`).join('')}<td>${r.binary_denominator?r.counts.INCORRECT+'/'+r.binary_denominator+'（'+(100*r.counts.INCORRECT/r.binary_denominator).toFixed(0)+'%）':'暂无可判定作答'}</td><td>${esc(r.incorrect_students.join('、')||'—')}</td></tr>`).join('')||'<tr><td colspan="8">还没有教师确认的原卷，不生成班级薄弱结论。</td></tr>'}</tbody></table></div><p class="muted micro" style="margin-top:16px">错误占比只计算已确认正确与错误的作答；部分正确、待核对和缺材料单列。高频错误值得集中讲解，错因仍须老师核实；不同试卷请用不同的同次作业编号，不能只凭题号合并。</p></section>`;
+}
 function classKnowledgeHTML(summary){
  const analysis=summary.class_analysis;
  if(!analysis)return '<section id="class-knowledge" class="panel"><h2>知识问题暂未读取</h2><p>请刷新本批摘要；不会从题号猜知识点。</p></section>';

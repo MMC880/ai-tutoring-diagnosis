@@ -75,6 +75,7 @@ try{
  verify('未保存原卷阻止日期窗口且保留编辑',await evaluate("dirty&&!document.querySelector('#modal').open&&document.querySelector('[data-q=Q01] [data-field=answer]').value==='尚未保存原答'"));
  await evaluate("(async()=>{dirty=false;await load();await render()})()");
  await click('[data-action=new]');verify('收件日期默认空不猜今天',await evaluate("document.querySelector('#new-assignment-date').value===''") );
+ await click('.new-paper-options > summary');
  await fill('#new-ref','SYN-C');await fill('#new-name','合成C');await fill('#new-batch','SYN-CREATE');await fill('#new-title','合成新卷');await fill('#new-assignment-date','2026-09-10');
  await evaluate("document.querySelector('#new-assignment-date').focus()");await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Backspace',code:'Backspace',windowsVirtualKeyCode:8});await command('Input.dispatchKeyEvent',{type:'keyUp',key:'Backspace',code:'Backspace',windowsVirtualKeyCode:8});
  const beforeInvalidCreate=requests.filter(r=>r.method==='POST').length;await click('[data-action=create-paper]');
