@@ -45,3 +45,12 @@ dialog.tutor-modal{overflow-wrap:anywhere}
 .teaching-catalog-modal{max-width:760px}#teaching-catalog{min-width:0;overflow-wrap:anywhere}#teaching-catalog select{min-width:0;max-width:100%}#teaching-catalog-preview{margin-top:16px;max-height:35vh;overflow:auto;padding:12px;border:1px solid var(--line);border-radius:8px}#teaching-catalog-preview pre{white-space:pre-wrap;overflow-wrap:anywhere}
 
 .question-navigation{padding:16px;margin:16px 0;border:1px solid var(--line);border-radius:8px;min-width:0;overflow-wrap:anywhere}.question-navigation select,.question-navigation input{width:100%;min-width:0;max-width:100%}.question-navigation p{margin:10px 0}.question-navigation [hidden],#questions .question[hidden]{display:none!important}.question-nav-jump{margin-top:14px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end}.question-nav-jump .field{margin-bottom:0}.question-nav-focus{outline:2px solid #537e7b;outline-offset:3px}@media(max-width:700px){.question-nav-jump{grid-template-columns:1fr}.question-navigation .row button{flex:1}}
+
+/* Student selection belongs to the archive, independently of the paper toolbar. */
+.student-archive-layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:20px;align-items:start;padding-top:20px}
+.student-roster{position:sticky;top:18px;padding:16px}.student-roster h2{margin-bottom:16px}.student-roster .field{margin-bottom:8px}
+#profile-student-list{display:grid;gap:6px;margin-top:14px;max-height:65vh;overflow:auto}
+.student-choice{display:block;width:100%;text-align:left;padding:10px 12px}.student-choice strong,.student-choice small{display:block;overflow-wrap:anywhere}.student-choice.selected{background:#edf5f1;border-color:var(--teal);border-left:4px solid var(--teal)}
+#profile-content{min-width:0;overflow-wrap:anywhere}#profile-content .stats{grid-template-columns:repeat(2,minmax(0,1fr))}#profile-content>.panel{margin-bottom:18px}#profile-content .profile-grid{grid-template-columns:1fr}#profile-content .archive-summary .panel-head{margin-bottom:8px}
+@media(max-width:1050px){.student-archive-layout{grid-template-columns:190px minmax(0,1fr);gap:12px}}
+@media(max-width:800px){.student-archive-layout{grid-template-columns:1fr;padding-top:14px}.student-roster{position:static}.student-roster h2{margin-bottom:8px}#profile-student-list{max-height:200px;grid-template-columns:repeat(2,minmax(0,1fr))}.student-choice{font-size:13px}#profile-content .stats{gap:8px}#profile-content .stat strong{font-size:24px}}

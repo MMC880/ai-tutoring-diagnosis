@@ -2,7 +2,7 @@
 import {spawn} from 'node:child_process';
 import {mkdtemp,readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
-const project=String.raw`E:\GPT\AI-Tutoring-Diagnosis`;
+const project=path.resolve(import.meta.dirname,'../..');
 const output=path.join(project,'docs/design/profile-report-browser');await mkdir(output,{recursive:true});
 const tempBase=path.join(project,'app/.qa-temp');await mkdir(tempBase,{recursive:true});
 const run=await mkdtemp(path.join(tempBase,'profile-report-browser-'));
@@ -42,7 +42,7 @@ try{
   const e=await api('exercises',{paper_id:a.id,question_id:'Q01',level:'基础巩固',stem:'合成基础练习',answer:'2',explanation:'教师讲解'});await api('exercises/'+e.id+'/approve',{version:1,consent:true});
   await api('retests',{exercise_id:e.id,version:1,result:'CORRECT',condition:'独立完成',answer:'合成作答',consent:true,request_id:crypto.randomUUID()});
   await api('exercises/'+e.id+'/update',{version:1,level:'基础巩固',stem:'未测新版',answer:'3',explanation:'新版讲解'});await api('exercises/'+e.id+'/approve',{version:2,consent:true});
-  globalThis.reportFixture={a,b,e};await load();paperId=a.id;view='profile';await render();
+  globalThis.reportFixture={a,b,e};await load();paperId=a.id;profileStudentId=a.student_id;view='profile';await render();
  })()`);
  verify('档案有个人学情报告入口',await evaluate("!!document.querySelector('[data-action=report-preview]')"));
  const writesBefore=requests.filter(r=>r.method==='POST').length;
@@ -67,8 +67,8 @@ try{
  verify('资料更新拒绝旧版导出且不下载',await evaluate("reportDownloads===1&&document.querySelector('#toast').textContent.includes('已更新')&&document.querySelector('#report-export').disabled"));
  await click('[data-action=close]');
  await evaluate("globalThis.reportOriginalApi=api;api=async function(path,...args){if(path.endsWith('/report'))await new Promise(r=>setTimeout(r,500));return reportOriginalApi(path,...args)}");
- await click('[data-action=report-preview]');await evaluate("(async()=>{paperId=reportFixture.b.id;await render()})()");await delay(650);
- verify('读取期间换学生不弹出旧生报告',await evaluate("paper().student_id===reportFixture.b.student_id&&!document.querySelector('#modal').open"));await evaluate('api=reportOriginalApi');
+ await click('[data-action=report-preview]');await evaluate("(async()=>{await archiveSelect(reportFixture.b.student_id)})()");await delay(650);
+ verify('读取期间换学生不弹出旧生报告',await evaluate("document.querySelector('#profile-content').dataset.student===reportFixture.b.student_id&&!document.querySelector('#modal').open"));await evaluate('api=reportOriginalApi');
  await evaluate("api=async function(path,...args){if(path.endsWith('/report'))await new Promise(r=>setTimeout(r,500));return reportOriginalApi(path,...args)}");
  await click('[data-action=report-preview]');await evaluate("modal('<p>新窗口</p>');close()");await delay(650);
  verify('新窗口开关取消迟到报告',await evaluate("!document.querySelector('#modal').open"));await evaluate('api=reportOriginalApi');

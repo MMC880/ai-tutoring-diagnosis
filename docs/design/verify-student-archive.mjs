@@ -2,7 +2,7 @@
 import {spawn} from 'node:child_process';
 import {mkdtemp,readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
-const project=String.raw`E:\GPT\AI-Tutoring-Diagnosis`;
+const project=path.resolve(import.meta.dirname,'../..');
 const output=path.join(project,'docs/design/student-archive-browser');await mkdir(output,{recursive:true});
 const tempBase=path.join(project,'app/.qa-temp');await mkdir(tempBase,{recursive:true});
 const run=await mkdtemp(path.join(tempBase,'archive-browser-'));
@@ -19,6 +19,7 @@ async function evaluate(expression){const r=await command('Runtime.evaluate',{ex
 async function until(expr){for(let i=0;i<80;i++){if(await evaluate(expr))return;await delay(80);}throw Error('wait failed '+expr);}
 async function click(selector){await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e||e.disabled)throw Error('Missing/disabled '+${JSON.stringify(selector)});e.click()})()`);await delay(160);}
 async function fill(selector,value){await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));})()`);}
+async function selectStudent(id){await click('[data-action=archive-select][data-student="'+id+'"]');}
 async function capture(name){const r=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(path.join(output,name),Buffer.from(r.data,'base64'));}
 try{
  for(let i=0;i<80;i++){try{base=JSON.parse(await readFile(path.join(dataDir,'server.json'),'utf8')).url;break;}catch{if(service.exitCode!==null)throw Error(serviceLog);await delay(100);}}
@@ -42,9 +43,9 @@ try{
   qs[0].result='CORRECT';qs[0].grading_note='合成模拟老师复核后改判';qs[0].grading_resolved=true;
   const corrected=await api('papers/'+a.id+'/draft',{version:a.version,questions:qs});await api('papers/'+a.id+'/confirm',{version:corrected.version,consent:true});
   qs[0].answer='DRAFT_ONLY_NOT_CONFIRMED';await api('papers/'+a.id+'/draft',{version:corrected.version,questions:qs});
-  window.archiveFixture={a:a.id,b:b.id,aStudent:a.student_id,bStudent:b.student_id};await load();paperId=a.id;view='profile';await render();
+  window.archiveFixture={a:a.id,b:b.id,aStudent:a.student_id,bStudent:b.student_id};await load();paperId=a.id;profileStudentId=a.student_id;view='profile';await render();
  })()`);
- verify('档案可按学生独立选择',await evaluate("document.querySelector('#profile-student-select')?.options.length===2"));
+ verify('档案可按学生独立选择',await evaluate("document.querySelectorAll('[data-action=archive-select]').length===2"));
  verify('个人摘要按照片去重并保留完整历史',await evaluate("currentProfile.archive_summary.current_records===4&&currentProfile.archive_summary.history_events===12&&currentProfile.archive_summary.duplicate_count===4"));
  verify('顶部待补数与去重记录一致',await evaluate("document.querySelector('[data-archive-wrong]').textContent==='2'&&currentProfile.current_evidence.filter(e=>['INCORRECT','PARTIAL'].includes(e.result)).length===2"));
  verify('待审修订没有替换已确认原答',await evaluate("currentProfile.current_evidence.every(e=>e.question.answer!=='DRAFT_ONLY_NOT_CONFIRMED')&&currentProfile.archive_summary.pending_papers===1"));
@@ -59,19 +60,19 @@ try{
  verify('可打开同题最近确认并保留旧历史',await evaluate("document.querySelector('.archive-evidence').textContent.includes('合成模拟老师复核后改判')&&currentProfile.events.length===12"));
  await click('[data-action=close]');
  verify('跨学生事件读取被拒绝',await evaluate("(async()=>{try{await api('profiles/'+archiveFixture.bStudent+'/evidence/'+archiveOldEvent);return false}catch(e){return e.message.includes('不属于')}})()"));
- await fill('#profile-student-select',await evaluate('archiveFixture.bStudent'));
+ await selectStudent(await evaluate('archiveFixture.bStudent'));
  await until("currentProfile?.student.id===archiveFixture.bStudent");
  verify('同照片的另一学生不与A混档',await evaluate("currentProfile.events.length===4&&currentProfile.archive_summary.duplicate_count===0&&document.querySelector('[data-archive-wrong]').textContent==='0'&&!document.querySelector('main').textContent.includes('A的原批注')"));
- await fill('#profile-student-select',await evaluate('archiveFixture.aStudent'));await until("currentProfile?.student.id===archiveFixture.aStudent");
+ await selectStudent(await evaluate('archiveFixture.aStudent'));await until("currentProfile?.student.id===archiveFixture.aStudent");
  // Delay only A's evidence GET. Switching students must invalidate the eventual response.
  await evaluate("window.originalArchiveApi=api;api=async function(path,payload){if(path==='profiles/'+archiveFixture.aStudent+'/evidence/'+archiveOldEvent)return await new Promise((resolve,reject)=>{window.releaseArchiveEvidence=()=>originalArchiveApi(path,payload).then(resolve,reject)});return originalArchiveApi(path,payload)}");
  await click('[data-action=archive-open][data-event="'+await evaluate('window.archiveOldEvent')+'"]');
- await fill('#profile-student-select',await evaluate('archiveFixture.bStudent'));await until("currentProfile?.student.id===archiveFixture.bStudent");
- await fill('#profile-student-select',await evaluate('archiveFixture.aStudent'));await until("currentProfile?.student.id===archiveFixture.aStudent");
+ await selectStudent(await evaluate('archiveFixture.bStudent'));await until("currentProfile?.student.id===archiveFixture.bStudent");
+ await selectStudent(await evaluate('archiveFixture.aStudent'));await until("currentProfile?.student.id===archiveFixture.aStudent");
  await evaluate("releaseArchiveEvidence();true");await until("!busy");
  verify('离开后切回原学生也拒绝旧请求',await evaluate("!document.querySelector('.archive-evidence')&&currentProfile.student.id===archiveFixture.aStudent"));
  await evaluate("api=originalArchiveApi");
- await fill('#profile-student-select',await evaluate('archiveFixture.bStudent'));await until("currentProfile?.student.id===archiveFixture.bStudent");
+ await selectStudent(await evaluate('archiveFixture.bStudent'));await until("currentProfile?.student.id===archiveFixture.bStudent");
  const bEvent=await evaluate('currentProfile.events[0].id');await click('[data-action=archive-open][data-event="'+bEvent+'"]');
  await until("!!document.querySelector('.archive-evidence')");
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await capture('02-archive-mobile.png');

@@ -11,7 +11,7 @@ function followupHandle(action,element){
  const group=profile?.learning_analysis?.groups.find(g=>g.id===element.dataset.group);
  const item=group?.followup?.items.find(i=>i.exercise_id===element.dataset.followupExercise);
  const journey=profile?.learning_journeys?.find(j=>j.exercise.id===item?.exercise_id&&j.source?.id===item.source_event_id);
- if(view!=='profile'||!profile?.student||profile.student.id!==paper()?.student_id||!item||!journey)throw Error('这组补练或当前学生已变化，请重新读取档案');
+ if(view!=='profile'||!profile?.student||!archiveIsCurrent(profile.student.id)||!item||!journey)throw Error('这组补练或当前学生已变化，请重新读取档案');
  const target=$$('.learning-journey').find(e=>e.dataset.exercise===item.exercise_id);
  if(!target)throw Error('完整过程已变化，请重新读取档案后定位');
  $$('.learning-journey.journey-focus').forEach(e=>e.classList.remove('journey-focus'));

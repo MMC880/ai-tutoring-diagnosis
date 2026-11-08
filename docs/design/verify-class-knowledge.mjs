@@ -2,7 +2,7 @@
 import {spawn} from 'node:child_process';
 import {mkdtemp,readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
-const project=String.raw`E:\GPT\AI-Tutoring-Diagnosis`;
+const project=path.resolve(import.meta.dirname,'../..');
 const output=path.join(project,'docs/design/class-knowledge-browser');await mkdir(output,{recursive:true});
 const tempBase=path.join(project,'app/.qa-temp');await mkdir(tempBase,{recursive:true});
 const run=await mkdtemp(path.join(tempBase,'class-knowledge-browser-'));

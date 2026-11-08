@@ -26,7 +26,7 @@ async function classHandle(action,element){
   if(p.id!==evidence.paper_id||p.student_id!==evidence.student_id||p.batch_id!==snapshot.batch_id)throw Error('原卷归属已变化，停止切换学生');
   const boot=await api('bootstrap');if(!current())return;
   if(!reviewFlowSame(p,boot.papers.find(row=>row.id===p.id)))throw Error('原卷版本已变化，请刷新本批摘要再选择');
-  data=boot;token=boot.csrf_token;paperId=p.id;view='profile';selectedDoc=0;selectedExercise='';selectedExerciseVersion=null;learningPracticeFocus=null;
+  data=boot;token=boot.csrf_token;paperId=p.id;profileStudentId=p.student_id;view='profile';selectedDoc=0;selectedExercise='';selectedExerciseVersion=null;learningPracticeFocus=null;
   history.replaceState(null,'','#profile');await render();
  }
 }

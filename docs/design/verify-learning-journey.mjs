@@ -2,7 +2,7 @@
 import {spawn} from 'node:child_process';
 import {mkdtemp,readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
-const project=String.raw`E:\GPT\AI-Tutoring-Diagnosis`;
+const project=path.resolve(import.meta.dirname,'../..');
 const output=path.join(project,'docs/design/learning-journey-browser');await mkdir(output,{recursive:true});
 const tempBase=path.join(project,'app/.qa-temp');await mkdir(tempBase,{recursive:true});
 const run=await mkdtemp(path.join(tempBase,'browser-'));
@@ -66,7 +66,7 @@ try{
  await reopen();await click('input[name=tutor-level][value="综合运用"]');await click('#tutor-consent');await click('[data-action=tutor-apply]');await until("exercise()?.level==='综合运用'");state=await boot();const b=state.exercises.find(e=>e.level==='综合运用');verify('其他档须另选且仍待审',state.exercises.length===2&&b.status==='DRAFT','不是自动生成三套作业');
  await click('#ex-consent');await click('[data-action=approve-exercise]');await until("exercise()?.status==='APPROVED'");
  const html=await (await fetch(base+'/print/exercise/'+b.id+'?audience=student&version=1')).text();verify('学生版不含教师答案教案',!html.includes('教师核对答案')&&!html.includes('原题讲解')&&html.includes('x'),'本地打印HTML检查；不等于实际打印');
- await click('[data-action=retest]');await fill('#rt-answer','(1,-4)，x=1；(-1,0)、(3,0)');await fill('#rt-result','CORRECT');await click('#rt-consent');await click('[data-action=save-retest]');await until("!document.querySelector('#modal').open");await click('[data-view=profile]');await until("!!currentProfile?.retests.length");verify('复测单列且原错题保留',await evaluate("currentProfile.retests.length===1&&currentProfile.latest.find(e=>e.question_id==='Q01').result==='INCORRECT'"),'没有自动标掌握');
+ await click('[data-action=retest]');await fill('#rt-answer','(1,-4)，x=1；(-1,0)、(3,0)');await fill('#rt-result','CORRECT');await click('#rt-consent');await click('[data-action=save-retest]');await until("!document.querySelector('#modal').open");await click('[data-view=profile]');await click('[data-action=archive-select]');await until("!!currentProfile?.retests.length");verify('复测单列且原错题保留',await evaluate("currentProfile.retests.length===1&&currentProfile.latest.find(e=>e.question_id==='Q01').result==='INCORRECT'"),'没有自动标掌握');
  verify('档案按练习串联准确原题与复测',await evaluate("currentProfile.learning_journeys.length===2&&currentProfile.learning_journeys.some(j=>j.retests.length===1&&j.source.question_id==='Q01'&&j.source.revision===2&&j.observation==='INDEPENDENT_CORRECT_OBSERVE')"),'不删除原错误');
  verify('页面可展开讲解及实际复测版本',await evaluate("document.querySelectorAll('.learning-journey').length===2&&document.querySelector('.learning-journeys').textContent.includes('仍需后续观察')&&document.querySelector('.learning-journeys').textContent.includes('对应练习V1')"),'一次对不认定掌握');
  await evaluate("document.querySelector('.learning-journeys').scrollIntoView({block:'start'})");await screenshot('04-learning-journey.png');

@@ -2,7 +2,7 @@
 import {spawn} from 'node:child_process';
 import {mkdtemp,readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
-const project=String.raw`E:\GPT\AI-Tutoring-Diagnosis`;
+const project=path.resolve(import.meta.dirname,'../..');
 const output=path.join(project,'docs/design/knowledge-patterns-browser');await mkdir(output,{recursive:true});
 const tempBase=path.join(project,'app/.qa-temp');await mkdir(tempBase,{recursive:true});
 const run=await mkdtemp(path.join(tempBase,'patterns-browser-'));
@@ -19,6 +19,7 @@ async function evaluate(expression){const r=await command('Runtime.evaluate',{ex
 async function until(expr){for(let i=0;i<80;i++){if(await evaluate(expr))return;await delay(80);}throw Error('wait failed '+expr);}
 async function click(selector){await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e||e.disabled)throw Error('Missing/disabled '+${JSON.stringify(selector)});e.click()})()`);await delay(160);}
 async function fill(selector,value){await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));})()`);}
+async function selectStudent(id){await click('[data-action=archive-select][data-student="'+id+'"]');}
 async function capture(name){const r=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(path.join(output,name),Buffer.from(r.data,'base64'));}
 try{
  for(let i=0;i<80;i++){try{base=JSON.parse(await readFile(path.join(dataDir,'server.json'),'utf8')).url;break;}catch{if(service.exitCode!==null)throw Error(serviceLog);await delay(100);}}
@@ -56,7 +57,7 @@ try{
  const legacy=await createPatternPaper(null,'二次函数顶点与轴');
  const other=await createPatternPaper(ref(m,0),'二次函数顶点与轴','求顶点','SYN-PAT-B');
  window.patternFixture={p1:p1.id,p2:p2.id,legacy:legacy.id,other:other.id,sid:p2.student_id,otherSid:other.student_id,ref0:ref(m,0),ref1:ref(m,1)};
- paperId=p2.id;view='profile';await refresh();return true;
+ paperId=p2.id;profileStudentId=p2.student_id;view='profile';await refresh();return true;
  })()`);
  verify('同一学生按知识条目归组，改名与不同题型合并',await evaluate("currentProfile.learning_analysis.groups.some(g=>g.basis==='TEACHING_ENTRY'&&g.wrong_count===2&&g.question_types.length===2&&g.knowledge_names.length===2)"));
  verify('同名不同条目和未关联标签保持分开',await evaluate("currentProfile.learning_analysis.groups.length===3&&currentProfile.learning_analysis.groups.filter(g=>g.basis==='TEACHING_ENTRY').length===2&&currentProfile.learning_analysis.groups.filter(g=>g.basis==='LABEL_ONLY').length===1"));
@@ -71,10 +72,10 @@ try{
  verify('可从聚合证据回看固定版本教学原件',await evaluate("!!document.querySelector('.archive-evidence .teaching-reference')&&document.querySelector('.archive-evidence').textContent.includes('合成知识关联资料')"));await click('[data-action=close]');
  await click(card+' [data-action=learning-practice]');await until("!!document.querySelector('#source-question')");
  verify('补练仍准确定位该组的最近原题',await evaluate("paperId===patternFixture.p2&&document.querySelector('#source-question').value==='Q01'&&data.exercises.length===0"));
- await click('[data-view=profile]');await until("!!document.querySelector('#profile-student-select')");
- await fill('#profile-student-select',await evaluate('patternFixture.otherSid'));await until("currentProfile?.student.id===patternFixture.otherSid");
+ await click('[data-view=profile]');await until("!!document.querySelector('[data-action=archive-select]')");
+ await selectStudent(await evaluate('patternFixture.otherSid'));await until("currentProfile?.student.id===patternFixture.otherSid");
  verify('同条目用于另一学生时不混入前一学生',await evaluate("currentProfile.learning_analysis.groups.length===1&&currentProfile.learning_analysis.groups[0].wrong_count===1"));
- await fill('#profile-student-select',await evaluate('patternFixture.sid'));await until("currentProfile?.student.id===patternFixture.sid");
+ await selectStudent(await evaluate('patternFixture.sid'));await until("currentProfile?.student.id===patternFixture.sid");
  await evaluate("(async()=>{const p=await api('papers/'+patternFixture.legacy);p.questions[0].teaching_ref=patternFixture.ref0;await api('papers/'+p.id+'/draft',{version:p.version,questions:p.questions});await refresh();})()");
  verify('老师修改关联草稿不提前改变已确认分组',await evaluate("currentProfile.learning_analysis.groups.length===3&&currentProfile.learning_analysis.groups.some(g=>g.basis==='LABEL_ONLY')"));
  await evaluate("(async()=>{const p=await api('papers/'+patternFixture.legacy);await api('papers/'+p.id+'/confirm',{version:p.version,consent:true});await refresh();})()");

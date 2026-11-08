@@ -2,7 +2,7 @@
 import {spawn} from 'node:child_process';
 import {mkdtemp,readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
-const project=String.raw`E:\GPT\AI-Tutoring-Diagnosis`;
+const project=path.resolve(import.meta.dirname,'../..');
 const output=path.join(project,'docs/design/knowledge-followup-browser');await mkdir(output,{recursive:true});
 const tempBase=path.join(project,'app/.qa-temp');await mkdir(tempBase,{recursive:true});
 const run=await mkdtemp(path.join(tempBase,'knowledge-followup-browser-'));
@@ -19,6 +19,7 @@ async function evaluate(expression){const r=await command('Runtime.evaluate',{ex
 async function until(expr){for(let i=0;i<80;i++){if(await evaluate(expr))return;await delay(80);}throw Error('wait failed '+expr);}
 async function click(selector){await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e||e.disabled)throw Error('Missing/disabled '+${JSON.stringify(selector)});e.click()})()`);await delay(160);}
 async function fill(selector,value){await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));})()`);}
+async function selectStudent(id){await click('[data-action=archive-select][data-student="'+id+'"]');}
 async function capture(name){const r=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(path.join(output,name),Buffer.from(r.data,'base64'));}
 try{
  for(let i=0;i<80;i++){try{base=JSON.parse(await readFile(path.join(dataDir,'server.json'),'utf8')).url;break;}catch{if(service.exitCode!==null)throw Error(serviceLog);await delay(100);}}
@@ -48,7 +49,7 @@ try{
   const old=await create('SYN-A','SYN-HISTORICAL',[q('Q03','旧知识')]);const oldEx=await exercise(old,'Q03');
   old.questions[0].knowledge='新知识';await api('papers/'+old.id+'/draft',{version:1,questions:old.questions});await api('papers/'+old.id+'/confirm',{version:2,consent:true});
   globalThis.followFixture={a:a.id,b:b.id,e1:e1.id,e2:e2.id,e3:e3.id,eb:eb.id,sid:a.student_id,old:oldEx.id};
-  await load();paperId=a.id;view='profile';await render();
+  await load();paperId=a.id;profileStudentId=a.student_id;view='profile';await render();
  })()`);
  const writesBefore=requests.filter(r=>r.method==='POST').length;
  verify('知识卡出现补练复测跟进入口',await evaluate("!!document.querySelector('.knowledge-followup')"));
@@ -74,7 +75,7 @@ try{
  await evaluate("(async()=>{await render();document.querySelector('#toast').classList.remove('show');document.querySelector('.learning-group[data-group=\"'+currentProfile.learning_analysis.groups.find(g=>g.knowledge==='顶点式').id+'\"]').scrollIntoView({block:'start'})})()");await capture('01-followup-desktop.png');
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await evaluate("document.querySelector('.learning-group[data-group=\"'+currentProfile.learning_analysis.groups.find(g=>g.knowledge==='顶点式').id+'\"] .knowledge-followup').scrollIntoView({block:'start'})");await capture('02-followup-mobile.png');
  verify('390px跟进摘要与按钮不横向溢出',await evaluate("document.documentElement.scrollWidth<=innerWidth"));
- await fill('#profile-student-select',await evaluate("data.papers.find(p=>p.id===followFixture.b).student_id"));await until("currentProfile?.student.id===data.papers.find(p=>p.id===followFixture.b).student_id");
+ await selectStudent(await evaluate("data.papers.find(p=>p.id===followFixture.b).student_id"));await until("currentProfile?.student.id===data.papers.find(p=>p.id===followFixture.b).student_id");
  verify('换学生后只显示其有提示复测',await evaluate("currentProfile.learning_analysis.groups[0].followup.exercise_count===1&&document.querySelector('.knowledge-followup').textContent.includes('本次有提示')&&!document.querySelector('.learning-journey[data-exercise=\"'+followFixture.e1+'\"]')"));
  verify('跟进浏览定位不新增写请求',requests.filter(r=>r.method==='POST').length===writesBefore);
  verify('全程无AI发送和页面异常',requests.every(r=>!r.url.endsWith('/prepare')&&!r.url.endsWith('/send'))&&pageErrors.length===0);

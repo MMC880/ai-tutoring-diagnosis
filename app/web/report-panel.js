@@ -1,11 +1,11 @@
 'use strict';
 let reportEpoch=0,reportSession=null;
 function reportCurrent(context,opened=false){
- return context.epoch===reportEpoch&&view==='profile'&&paperId===context.paperId&&paper()?.student_id===context.studentId&&renderEpoch===context.renderEpoch&&reviewFlowEdits===context.edits&&(!opened||($('#modal').open&&$('#profile-report')===context.root));
+ return context.epoch===reportEpoch&&view==='profile'&&archiveIsCurrent(context.studentId)&&renderEpoch===context.renderEpoch&&reviewFlowEdits===context.edits&&(!opened||($('#modal').open&&$('#profile-report')===context.root));
 }
 function reportBlocksHTML(blocks){return blocks.map(([kind,text])=>kind==='heading'?`<h3>${esc(text)}</h3>`:`<p class="${kind==='math'?'formula':''}">${esc(text)}</p>`).join('');}
 async function reportPreview(){
- if(view!=='profile'||!currentProfile?.student||paper()?.student_id!==currentProfile.student.id)throw Error('请先重新读取当前学生档案');
+ if(view!=='profile'||!currentProfile?.student||!archiveIsCurrent(currentProfile.student.id))throw Error('请先重新读取当前学生档案');
  const context={epoch:++reportEpoch,paperId,studentId:currentProfile.student.id,renderEpoch,edits:reviewFlowEdits};
  reportSession=null;
  const report=await api('profiles/'+context.studentId+'/report');
