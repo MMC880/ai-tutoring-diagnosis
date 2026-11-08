@@ -21,9 +21,10 @@ async function reportExport(){
  const format=$('input[name=report-format]:checked')?.value;
  if(!['docx','pdf'].includes(format)||!$('#report-consent').checked)throw Error('请选择格式并核对教师稿');
  let printWindow=null;
+ const nativeDesktop=!!window.pywebview;
  // Open synchronously while this click still has browser activation. A blank
  // same-origin window lets us detect blocking and sever opener before navigation.
- if(format==='pdf'){
+ if(format==='pdf'&&!nativeDesktop){
   printWindow=window.open('about:blank','_blank');
   if(!printWindow)throw Error('浏览器已阻止打印弹窗，请允许本机弹窗后重试');
   try{printWindow.opener=null;printWindow.document.title='正在核对教师报告';printWindow.document.body.textContent='正在核对当前档案，请稍候。';}
@@ -42,8 +43,14 @@ async function reportExport(){
    const a=document.createElement('a'),objectURL=URL.createObjectURL(blob);a.href=objectURL;a.download='个人学情报告-教师核对稿.docx';a.click();setTimeout(()=>URL.revokeObjectURL(objectURL),5000);
   }else{
    if(!reportCurrent(s,true))return;
-   if(printWindow.closed)throw Error('打印窗口已关闭，请重新选择导出');
-   printWindow.location.replace(url);printWindow=null;
+   if(nativeDesktop){
+    // WebView2 delegates popups to the system browser without a WindowProxy.
+    // Open only the verified local print URL, never an intermediate blank page.
+    window.open(new URL(url,location.href).href,'_blank','noopener');
+   }else{
+    if(printWindow.closed)throw Error('打印窗口已关闭，请重新选择导出');
+    printWindow.location.replace(url);printWindow=null;
+   }
   }
   close();reportSession=null;toast(format==='docx'?'教师报告 Word 已生成，请检查公式与排版。':'教师打印页已打开，请核对分页后另存 PDF。');
  }finally{if(printWindow&&!printWindow.closed)printWindow.close();if(reportCurrent(s,true)){s.sending=false;reportChoiceChanged();}}
