@@ -2,7 +2,8 @@
 import {spawn} from 'node:child_process';
 import {mkdtemp,readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
-const project=String.raw`E:\GPT\AI-Tutoring-Diagnosis`;
+import {revealViewControl} from './teacher-browser-navigation.mjs';
+const project=path.resolve(import.meta.dirname,'../..');
 const output=path.join(project,'docs/design/batch-intake-browser');await mkdir(output,{recursive:true});
 const tempBase=path.join(project,'app/.qa-temp');await mkdir(tempBase,{recursive:true});
 const run=await mkdtemp(path.join(tempBase,'intake-browser-'));
@@ -17,7 +18,7 @@ function verify(name,ok,detail=''){checks.push({name,passed:!!ok,detail});if(!ok
 async function command(method,params={},useSession=true){const id=++seq;return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{pending.delete(id);reject(Error('CDP timeout '+method));},15000);pending.set(id,{resolve:v=>{clearTimeout(timer);resolve(v);},reject:e=>{clearTimeout(timer);reject(e);}});ws.send(JSON.stringify({id,method,params,...(useSession&&session?{sessionId:session}:{})}));});}
 async function evaluate(expression){const r=await command('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true,userGesture:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value;}
 async function until(expr){for(let i=0;i<80;i++){if(await evaluate(expr))return;await delay(80);}throw Error('wait failed '+expr);}
-async function click(selector){await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e||e.disabled)throw Error('Missing/disabled '+${JSON.stringify(selector)});e.click()})()`);await delay(160);}
+async function click(selector){await revealViewControl(selector,{evaluate,click,until});await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e||e.disabled)throw Error('Missing/disabled '+${JSON.stringify(selector)});e.click()})()`);await delay(160);}
 async function fill(selector,value){await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));})()`);}
 async function capture(name){const r=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(path.join(output,name),Buffer.from(r.data,'base64'));}
 try{

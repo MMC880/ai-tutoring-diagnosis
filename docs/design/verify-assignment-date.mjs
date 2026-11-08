@@ -2,7 +2,8 @@
 import {spawn} from 'node:child_process';
 import {mkdtemp,readFile,writeFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
-const project=String.raw`E:\GPT\AI-Tutoring-Diagnosis`;
+import {revealViewControl} from './teacher-browser-navigation.mjs';
+const project=path.resolve(import.meta.dirname,'../..');
 const output=path.join(project,'docs/design/assignment-date-browser');await mkdir(output,{recursive:true});
 const tempBase=path.join(project,'app/.qa-temp');await mkdir(tempBase,{recursive:true});
 const run=await mkdtemp(path.join(tempBase,'assignment-date-browser-'));
@@ -17,7 +18,7 @@ function verify(name,ok,detail=''){checks.push({name,passed:!!ok,detail});if(!ok
 async function command(method,params={},useSession=true){const id=++seq;return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{pending.delete(id);reject(Error('CDP timeout '+method));},15000);pending.set(id,{resolve:v=>{clearTimeout(timer);resolve(v);},reject:e=>{clearTimeout(timer);reject(e);}});ws.send(JSON.stringify({id,method,params,...(useSession&&session?{sessionId:session}:{})}));});}
 async function evaluate(expression){const r=await command('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true,userGesture:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value;}
 async function until(expr){for(let i=0;i<80;i++){if(await evaluate(expr))return;await delay(80);}throw Error('wait failed '+expr);}
-async function click(selector){await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e||e.disabled)throw Error('Missing/disabled '+${JSON.stringify(selector)});e.click()})()`);await delay(160);}
+async function click(selector){await revealViewControl(selector,{evaluate,click,until});await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e||e.disabled)throw Error('Missing/disabled '+${JSON.stringify(selector)});e.click()})()`);await delay(160);}
 async function fill(selector,value){await evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));})()`);}
 async function capture(name){const r=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(path.join(output,name),Buffer.from(r.data,'base64'));}
 try{
@@ -49,7 +50,7 @@ try{
  verify('取消未提交日期零写入',requests.filter(r=>r.method==='POST').length===writesBefore);
  await click('[data-action=date-open]');await fill('#assignment-date-value','2026-10-20');await click('#assignment-date-save');await until("!document.querySelector('#modal').open&&paper().version===2");
  verify('只改日期生成新待审版本并保留原答',await evaluate("paper().assignment_date==='2026-10-20'&&paper().confirmed_version===1&&paper().questions[0].answer==='原错误'&&data.event_count===1&&!document.querySelector('#confirm-consent').checked"));
- await click('[data-view=profile]');await until("!!document.querySelector('.learning-groups')");
+ await click('[data-view=profile]');await click('[data-action=archive-select][data-student=\"'+await evaluate('dateFixture.a.student_id')+'\"]');await until("!!document.querySelector('.learning-groups')");
  verify('未确认日期不套入旧历史',await evaluate("currentProfile.events[0].assignment_date===''&&document.querySelector('.timeline').textContent.includes('作业日期：未提供')"));
  await evaluate("(async()=>{await api('papers/'+dateFixture.a.id+'/confirm',{version:2,consent:true});await load();await render()})()");
  verify('新确认知识证据显示当次日期',await evaluate("currentProfile.learning_analysis.groups[0].evidence[0].assignment_date==='2026-10-20'&&document.querySelector('.learning-groups').textContent.includes('作业日期：2026-10-20')"));
