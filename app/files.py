@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 
 MAX_BYTES = 15 * 1024 * 1024
 MIMES = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+         '.webp': 'image/webp',
          '.pdf': 'application/pdf', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}
 
 
@@ -18,16 +19,20 @@ def save_document(root, filename, data):
         raise ValidationError('文件名不合法')
     ext = Path(filename).suffix.lower()
     if ext not in MIMES or not data or len(data) > MAX_BYTES:
-        raise ValidationError('仅支持 15MB 以内的 PNG、JPG、PDF、DOCX')
+        raise ValidationError('仅支持 15MB 以内的 PNG、JPG、WebP、PDF、DOCX')
     warnings, extracted = [], ''
+    mime = MIMES[ext]
     try:
-        if ext in ('.png', '.jpg', '.jpeg'):
+        if ext in ('.png', '.jpg', '.jpeg', '.webp'):
             from PIL import Image
             with Image.open(io.BytesIO(data)) as img:
                 if img.width * img.height > 30_000_000:
                     raise ValueError('图片像素过大')
-                if img.format not in ('PNG', 'JPEG'):
-                    raise ValueError('图片类型不符')
+                if img.format not in ('PNG', 'JPEG', 'WEBP'):
+                    raise ValueError('图片实际类型为' + str(img.format) + '，目前支持PNG、JPEG和WebP')
+                mime = {'PNG': 'image/png', 'JPEG': 'image/jpeg', 'WEBP': 'image/webp'}[img.format]
+                if mime != MIMES[ext]:
+                    warnings.append('文件后缀与实际编码不同；按实际图片类型读取，原文件字节保留。')
                 img.verify()
             warnings.append('图片已本地保存，尚未自动识别；请人工录入或导入已核对的结构化草稿。')
         elif ext == '.docx':
@@ -59,11 +64,11 @@ def save_document(root, filename, data):
             if '\ufffd' in extracted:
                 warnings.append('文字层含替换字符，请以原页为准。')
     except Exception as exc:
-        raise ValidationError('文件无法安全读取：' + str(exc)[:150]) from exc
+        raise ValidationError('文件“' + filename + '”无法安全读取：' + str(exc)[:150]) from exc
     folder = Path(root) / 'documents'
     folder.mkdir(parents=True, exist_ok=True)
     ident = uuid.uuid4().hex
-    meta = dict(id=ident, filename=filename, storage_name=ident + ext, mime=MIMES[ext],
+    meta = dict(id=ident, filename=filename, storage_name=ident + ext, mime=mime,
                 size=len(data), sha256=hashlib.sha256(data).hexdigest(), extracted_text=extracted, warnings=warnings)
     (folder / meta['storage_name']).write_bytes(data)
     (folder / (ident + '.json')).write_text(json.dumps(meta, ensure_ascii=False), encoding='utf-8')

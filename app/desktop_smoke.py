@@ -7,6 +7,7 @@ import time
 import urllib.request
 import zipfile
 import webbrowser
+import base64
 
 
 def unused_port():
@@ -78,6 +79,18 @@ def run_smoke(window, loaded, service, report, report_path):
             raise RuntimeError('个人报告未交给系统浏览器正确的本机打印地址: ' + repr(opened_urls))
         result['checks']['profile_pdf_native_handoff'] = True
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        from PIL import Image
+        for fmt in ('JPEG', 'PNG', 'WEBP'):
+            image = io.BytesIO()
+            Image.new('RGB', (100, 120), 'white').save(image, format=fmt)
+            request = urllib.request.Request(service.url + '/api/documents',
+                data=json.dumps({'filename': 'synthetic-' + fmt + '.jpg', 'data': base64.b64encode(image.getvalue()).decode()}).encode(),
+                headers={'Content-Type': 'application/json', 'X-Jinxue-Token': service.server.token})
+            with opener.open(request) as response:
+                meta = json.load(response)
+            if meta['mime'] != {'JPEG':'image/jpeg','PNG':'image/png','WEBP':'image/webp'}[fmt]:
+                raise RuntimeError('Frozen photo actual-format handling failed: ' + fmt)
+            result['checks']['photo_import_' + fmt.lower()] = True
         with opener.open(opened_urls[0]) as response:
             report_html = response.read().decode('utf-8')
         if '合成学生A' not in report_html or '教师核对稿' not in report_html:

@@ -9,7 +9,7 @@ import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
-OUTPUT = ROOT / 'docs/delivery/windows-desktop-0.1.0'
+OUTPUT = ROOT / 'docs/delivery/windows-desktop-0.1.1'
 DIST = OUTPUT / 'portable'
 BUILD = ROOT / '.tools/windows-build/pyinstaller'
 
@@ -24,7 +24,7 @@ def main():
     shutil.copyfile(ROOT / 'packaging/windows/USER_GUIDE.md', folder / '使用说明.txt')
     shutil.copyfile(ROOT / 'docs/pilot/TRIAL_FEEDBACK_TEMPLATE.md', folder / '试用问题反馈表.md')
     versions = {d.metadata['Name']: d.version for d in importlib.metadata.distributions()}
-    (folder / '构建版本.json').write_text(json.dumps({'desktop_version': '0.1.0', 'python': sys.version.split()[0],
+    (folder / '构建版本.json').write_text(json.dumps({'desktop_version': '0.1.1', 'python': sys.version.split()[0],
         'packages': versions, 'source_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
         'source_has_uncommitted_changes': bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True)),
         'data_included': False}, ensure_ascii=False, indent=2), encoding='utf-8')
@@ -46,7 +46,7 @@ def main():
         raise RuntimeError('Forbidden data in bundle: ' + str(forbidden))
     manifest = '\n'.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.relative_to(folder).as_posix() for p in files) + '\n'
     (folder / 'MANIFEST.sha256').write_text(manifest, encoding='utf-8')
-    archive = OUTPUT / '晋学智辅-Windows-x64-0.1.0.zip'
+    archive = OUTPUT / '晋学智辅-Windows-x64-0.1.1.zip'
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as z:
         for p in sorted(folder.rglob('*')):
             if p.is_file():

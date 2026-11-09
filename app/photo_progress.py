@@ -7,7 +7,7 @@ def photo_progress(store,paper_id):
         paper=store._paper(db,paper_id)
         images=[];seen=set()
         for doc in paper['documents']:
-            if doc['id'] in seen or doc.get('role','作业')!='作业' or doc['mime'] not in ('image/png','image/jpeg'):continue
+            if doc['id'] in seen or doc.get('role','作业')!='作业' or doc['mime'] not in ('image/png','image/jpeg','image/webp'):continue
             seen.add(doc['id'])
             images.append(dict(document_id=doc['id'],filename=doc['filename'],position=len(images)+1,job_count=0,latest=None,saved=None))
         indexed={row['document_id']:row for row in images};unlinked=0

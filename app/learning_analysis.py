@@ -27,7 +27,7 @@ def build_learning_analysis(latest,papers,event_documents=None):
         docs=event_documents[event['id']] if event_documents is not None else paper.get('documents',[])
         photos=tuple(sorted({d['sha256'] for d in docs
             if d.get('role','作业')=='作业' and d.get('mime') in (
-                'image/png','image/jpeg','application/pdf',
+                'image/png','image/jpeg','image/webp','application/pdf',
                 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')}))
         unit=('documents',photos) if photos else ('paper',paper['id'])
         source_units[event['id']]=hashlib.sha256(json.dumps(unit).encode()).hexdigest()

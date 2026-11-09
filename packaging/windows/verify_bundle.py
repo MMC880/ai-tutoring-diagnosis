@@ -12,7 +12,7 @@ import urllib.request
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
-ARCHIVE = ROOT / 'docs/delivery/windows-desktop-0.1.0/晋学智辅-Windows-x64-0.1.0.zip'
+ARCHIVE = ROOT / 'docs/delivery/windows-desktop-0.1.1/晋学智辅-Windows-x64-0.1.1.zip'
 
 
 def report_when(path, process, statuses, timeout=70):

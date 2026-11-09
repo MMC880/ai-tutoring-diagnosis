@@ -1,6 +1,6 @@
 'use strict';
 function photoProgressShell(p){
- if(!p.documents.some(d=>(d.role||'作业')==='作业'&&['image/png','image/jpeg'].includes(d.mime)))return '';
+ if(!p.documents.some(d=>(d.role||'作业')==='作业'&&['image/png','image/jpeg','image/webp'].includes(d.mime)))return '';
  return `<section id="photo-progress" data-paper="${p.id}" class="photo-progress"><h3>整卷照片处理清单</h3><p class="micro muted">正在读取本机处理记录…</p></section>`;
 }
 async function renderPhotoProgress(p){
@@ -17,7 +17,7 @@ async function photoHandle(action,el){
  const requireCurrent=()=>{if(paperId!==p.id||view!==sourceView||paper()?.version!==p.version||dirty)throw Error('整卷来源或修改已变化，请在当前卷重新选择');};
  if(action==='photo-refresh'){await renderPhotoProgress(p);return;}
  if(dirty)throw Error('请先保存当前整卷修改，再打开照片或任务');
- const doc=p.documents.find(d=>d.id===el.dataset.document&&(d.role||'作业')==='作业'&&['image/png','image/jpeg'].includes(d.mime));
+ const doc=p.documents.find(d=>d.id===el.dataset.document&&(d.role||'作业')==='作业'&&['image/png','image/jpeg','image/webp'].includes(d.mime));
  if(!doc)throw Error('此照片不属于本卷作业，不能改用其他图片');
  if(action==='photo-open'){if($('#modal').open)close();await visionOpen('',doc.id);return;}
  if(action==='photo-job'){

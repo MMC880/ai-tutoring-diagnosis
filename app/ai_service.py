@@ -93,6 +93,7 @@ class AIService:
     def __init__(self,store,transport=None):
         self.store=store; self.transport=transport or HTTPTransport(); self.lock=threading.RLock(); self._key=''
         self._vision_hash=''; self._vision_proof_job=''
+        self._connection = dict(status='NOT_TESTED')
         self._initialize()
 
     def _initialize(self):
@@ -123,7 +124,7 @@ class AIService:
 
     def reset_after_restore(self):
         with self.lock:
-            self._key=''; self._vision_hash=''; self._vision_proof_job=''; self._initialize()
+            self._key=''; self._vision_hash=''; self._vision_proof_job=''; self._connection=dict(status='NOT_TESTED'); self._initialize()
 
     def _config(self,db):
         row=db.execute("SELECT value FROM app_settings WHERE key='ai_config'").fetchone()
@@ -136,7 +137,7 @@ class AIService:
             except ValidationError as exc:
                 issue=str(exc)
             cfg=self._config(db)
-            return cfg | dict(key_loaded=bool(self._key),protocol='chat_completions',vision_status='VERIFIED_THIS_SESSION' if self._key and self._vision_hash==self._fingerprint(cfg) else 'NOT_VERIFIED',key_storage='PROCESS_MEMORY_ONLY',outbound_error=issue)
+            return cfg | dict(connection=self._connection.copy(),key_loaded=bool(self._key),protocol='chat_completions',vision_status='VERIFIED_THIS_SESSION' if self._key and self._vision_hash==self._fingerprint(cfg) else 'NOT_VERIFIED',key_storage='PROCESS_MEMORY_ONLY',outbound_error=issue)
 
     def configure(self,p):
         cfg=validate_config(p)
@@ -146,6 +147,7 @@ class AIService:
                 raise ValidationError('API密钥须为不含空格和换行的有效本机输入')
         with self.lock,self.store.lock,self.store.db() as db:
             old=self._config(db)
+            if cfg!=old or key is not None: self._connection = dict(status='NOT_TESTED')
             if cfg!=old or key is not None: self._vision_hash=''; self._vision_proof_job=''
             if cfg['base_url']!=old['base_url']: self._key=''
             if key is not None: self._key=key
@@ -153,7 +155,7 @@ class AIService:
         return self.settings()
 
     def clear_key(self):
-        with self.lock: self._key=''; self._vision_hash=''; self._vision_proof_job=''
+        with self.lock: self._key=''; self._vision_hash=''; self._vision_proof_job=''; self._connection=dict(status='NOT_TESTED')
         return self.settings()
 
     def _fingerprint(self,cfg): return hashlib.sha256(dump(cfg).encode()).hexdigest()
@@ -373,6 +375,8 @@ class AIService:
                 completed=self._job(db,ident)
             if status=='SUCCEEDED' and job['mode']=='vision_probe':
                 self._vision_hash=self._fingerprint(cfg); self._vision_proof_job=ident
+            if job['mode']=='probe':
+                self._connection=dict(status=status,at=now(),error=error,model=cfg['model'],base_url=cfg['base_url'])
             return completed
 
     def apply(self,ident,consent,questions=None,transcription_ack=False):

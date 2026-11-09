@@ -16,8 +16,8 @@ OCR_SYSTEM='''你是数学作业转写员，只照录图片，不判对错、不
 
 def _document(root,ident):
     meta,path=get_document(root,ident)
-    if meta['mime'] not in ('image/png','image/jpeg'):
-        raise ValidationError('当前图片流程仅接PNG/JPEG；PDF/Word先在本机转成题目图片')
+    if meta['mime'] not in ('image/png','image/jpeg','image/webp'):
+        raise ValidationError('当前图片流程仅接PNG/JPEG/WebP；PDF/Word先在本机转成题目图片')
     raw=path.read_bytes()
     if hashlib.sha256(raw).hexdigest()!=meta['sha256']:
         raise ValidationError('附件内容已改变，请重新收件，不能沿用原预览')

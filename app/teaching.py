@@ -141,7 +141,7 @@ def validate_restored(db,files):
             filename=body.get('document_filename')
             if (not isinstance(filename,str) or not filename or any(c in filename for c in '/\\\x00:')
                     or meta.get('id')!=ident or meta.get('filename')!=filename
-                    or Path(filename).suffix.lower() not in ('.docx','.pdf','.png','.jpg','.jpeg')
+                    or Path(filename).suffix.lower() not in ('.docx','.pdf','.png','.jpg','.jpeg','.webp')
                     or storage!=ident+Path(filename).suffix.lower()):
                 raise _error('教学原件元数据与资料归属不一致')
             if not storage.startswith(ident+'.') or '/' in storage or '\\' in storage:

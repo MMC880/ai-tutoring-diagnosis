@@ -19,7 +19,7 @@ def intake_overview(store):
         questions = json.loads(source['questions_json'])
         documents = json.loads(source['documents_json'])
         assignments = [d for d in documents if d.get('role', '作业') == '作业']
-        photos = [d for d in assignments if d.get('mime') in ('image/png','image/jpeg')]
+        photos = [d for d in assignments if d.get('mime') in ('image/png','image/jpeg','image/webp')]
         identities = [d.get('sha256') or d['id'] for d in assignments]
         current = source['version'] == source['confirmed_version']
         paper = {k:source[k] for k in ('id','batch_id','title','student_id','version','confirmed_version')}

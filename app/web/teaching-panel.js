@@ -50,7 +50,7 @@ let teachingPicker=null;
 async function teachingHandle(action,button){
  if(action==='teaching-import'){
   if(!canLeave())return;
-  modal(`<h2>导入本地数学教学资料</h2><p>仅导入你选择的原件，不扫描其他文件夹，不调用AI；先作为待审核资料。</p><label class="field"><span>PDF／DOCX／照片（15MB以内）</span><input type="file" id="teaching-import-file" accept=".pdf,.docx,.png,.jpg,.jpeg"></label><label class="field"><span>资料名称（空白时用文件名）</span><input id="teaching-import-title" maxlength="160"></label><label class="field"><span>适用范围（可在审核前补充）</span><input id="teaching-import-scope" maxlength="300"></label><label class="field"><span>资料类型</span><select id="teaching-import-kind">${options({'教案':'教案','复习资料':'复习资料','考试范围':'考试范围'},'教案')}</select></label><div class="actions"><button data-action="close">取消</button><button data-action="teaching-import-save" class="primary">保存为待审核资料</button></div>`);return;
+  modal(`<h2>导入本地数学教学资料</h2><p>仅导入你选择的原件，不扫描其他文件夹，不调用AI；先作为待审核资料。</p><label class="field"><span>PDF／DOCX／照片（15MB以内）</span><input type="file" id="teaching-import-file" accept=".pdf,.docx,.png,.jpg,.jpeg,.webp"></label><label class="field"><span>资料名称（空白时用文件名）</span><input id="teaching-import-title" maxlength="160"></label><label class="field"><span>适用范围（可在审核前补充）</span><input id="teaching-import-scope" maxlength="300"></label><label class="field"><span>资料类型</span><select id="teaching-import-kind">${options({'教案':'教案','复习资料':'复习资料','考试范围':'考试范围'},'教案')}</select></label><div class="actions"><button data-action="close">取消</button><button data-action="teaching-import-save" class="primary">保存为待审核资料</button></div>`);return;
  }
  if(action==='teaching-import-save'){
   const file=$('#teaching-import-file').files[0];if(!file)throw Error('请选择一份本地教学资料');

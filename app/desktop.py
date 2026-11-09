@@ -13,7 +13,7 @@ import tempfile
 from server import make_server
 from store import Store
 
-DESKTOP_VERSION = '0.1.0'
+DESKTOP_VERSION = '0.1.1'
 HERE = Path(__file__).resolve().parent
 
 
@@ -170,10 +170,11 @@ def write_report(path, report):
         print(json.dumps(report, ensure_ascii=True))
 
 
-def create_teacher_window(renderer, url, smoke=False):
+def create_teacher_window(renderer, url, smoke=False, backup_bridge=None):
+    bridge_options = {'js_api': backup_bridge} if backup_bridge is not None else {}
     return renderer.create_window('晋学智辅 · Windows试用版' + (' · 合成自动测试' if smoke else ''), url,
         width=1280, height=820, min_size=(980, 680), text_select=True, zoomable=True,
-        confirm_close=not smoke, background_color='#f2f5f6',
+        confirm_close=not smoke, background_color='#f2f5f6', **bridge_options,
         localization={'global.quitConfirmation': '确定退出晋学智辅？未保存的编辑不会保留，已保存草稿和确认档案不受影响。',
                       'global.ok': '确定', 'global.cancel': '取消', 'global.saveFile': '保存文件'})
 
@@ -254,7 +255,10 @@ def main(argv=None):
         # allocated and owned by this process, never a sibling of student data.
         with DesktopService(data_dir) as service, tempfile.TemporaryDirectory(prefix='JinxueWebView-', ignore_cleanup_errors=True) as profile:
             report.update(url=service.url, pid=os.getpid(), status='STARTING')
-            window = create_teacher_window(webview, service.url, smoke=args.smoke_test)
+            from desktop_backup import BackupBridge
+            backup_bridge = BackupBridge(service, webview.FileDialog.FOLDER)
+            window = create_teacher_window(webview, service.url, smoke=args.smoke_test, backup_bridge=backup_bridge)
+            backup_bridge._window = window
             window.events.loaded += loaded.set
             window.events.closing += CloseGuard(window)
             if args.smoke_test:
