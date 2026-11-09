@@ -15,6 +15,7 @@ import outbound_ledger
 import vision
 import grading
 import tutoring
+import paper_chat
 
 
 class SensitiveResponse(ValidationError):
@@ -162,10 +163,15 @@ class AIService:
 
     def prepare(self,p):
         mode=p.get('mode','text_review')
-        if mode not in ('text_review','probe','vision_probe','vision_transcribe','tutoring_generate'): raise ValidationError('AI任务类型无效')
+        if mode not in ('text_review','probe','vision_probe','vision_transcribe','tutoring_generate','paper_chat'): raise ValidationError('AI任务类型无效')
         with self.lock,self.store.lock,self.store.db() as db:
             cfg=self._config(db); paper_id=None; version=None; metadata={}
-            if mode=='probe':
+            if mode=='paper_chat':
+                if p.get('images') and (not self._key or self._vision_hash!=self._fingerprint(cfg)):
+                    raise ValidationError('请先用当前模型和本次会话完成合成数字图片验证')
+                messages,metadata=paper_chat.prepare(self.store,db,p)
+                if metadata['images']: metadata['proof_job_id']=self._vision_proof_job
+            elif mode=='probe':
                 messages=[dict(role='system',content='只返回JSON，不调用工具。'),dict(role='user',content='这是不含学生资料的连通测试。请只返回 {"ok":true}。')]
             elif mode=='vision_probe':
                 raw,code=vision.make_probe(); metadata={'expected_code':code,'output_size':[300,90]}
@@ -211,10 +217,10 @@ class AIService:
                     material=[{k:q[k] for k in ('id','stem','answer','correct_answer')} for q in source]
                     messages=[dict(role='system',content=SYSTEM),dict(role='user',content=dump(dict(questions=material)))]
             payload=dict(model=cfg['model'],messages=messages,max_tokens=min(cfg['max_tokens'],1024) if mode=='vision_probe' else cfg['max_tokens'],stream=False)
-            if mode.startswith('vision_') and cfg.get('image_stream',False):
+            if (mode.startswith('vision_') or mode=='paper_chat' and metadata.get('images')) and cfg.get('image_stream',False):
                 payload['stream']=True
                 payload['stream_options']={'include_usage':True}
-            limit=6*1024*1024 if mode.startswith('vision_') else 64*1024
+            limit=6*1024*1024 if mode.startswith('vision_') or mode=='paper_chat' and metadata.get('images') else 64*1024
             if len(dump(payload).encode())>limit: raise ValidationError('单次材料超过大小上限，请缩小图片或减少题目')
             ident=uuid.uuid4().hex
             db.execute("INSERT INTO ai_jobs(id,paper_id,paper_version,config_hash,request_json,status,result_json,usage_json,error,created_at,updated_at,applied_version,destination,mode,metadata_json,model_id) VALUES(?,?,?,?,?,'PREPARED',NULL,NULL,'',?,?,NULL,?,?,?,?)",(ident,paper_id,version,self._fingerprint(cfg),dump(payload),now(),now(),cfg['base_url']+'/chat/completions',mode,dump(metadata),cfg['model']))
@@ -240,6 +246,9 @@ class AIService:
     def get_job(self,ident):
         with self.store.lock,self.store.db() as db: return self._job(db,ident)
 
+    def chat_markdown(self,ident):
+        with self.store.lock,self.store.db() as db: return paper_chat.markdown(self._job(db,ident))
+
     def jobs(self):
         with self.store.lock,self.store.db() as db:
             rows=db.execute('SELECT id,paper_id,paper_version,status,usage_json,error,created_at,applied_version,mode,model_id FROM ai_jobs ORDER BY created_at DESC,rowid DESC LIMIT 30')
@@ -251,6 +260,12 @@ class AIService:
         if choice.get('finish_reason') not in (None,'stop'): raise ValidationError('响应不完整或被截断')
         content=choice['message']['content']
         if not isinstance(content,str) or len(content)>100000: raise ValidationError('响应内容无效')
+        if job['mode']=='paper_chat':
+            normalized=re.sub(r'\\+u([0-9a-fA-F]{4})',lambda m:chr(int(m[1],16)),content)
+            if self._key and (self._key in content or self._key in normalized):
+                raise SensitiveResponse('响应含会话密钥，已拒绝保存响应内容')
+            if not content.strip(): raise ValidationError('对话回答不能为空')
+            return dict(answer=content)
         if content.strip().startswith('```'):
             lines=content.strip().splitlines(); content='\n'.join(lines[1:-1]) if lines[-1]=='```' else ''
         result=json.loads(content)
@@ -332,6 +347,10 @@ class AIService:
                 if stored!=self._fingerprint(cfg): raise ConflictError('服务或模型配置已变，请重新生成外发预览')
                 if job['mode']=='vision_transcribe' and self._vision_hash!=self._fingerprint(cfg):
                     raise ValidationError('当前密钥会话的图片验证已失效，请重新验证图片能力')
+                if job['mode']=='paper_chat':
+                    if job['metadata'].get('images') and self._vision_hash!=self._fingerprint(cfg):
+                        raise ValidationError('当前密钥会话的图片验证已失效，请重新验证图片能力')
+                    paper_chat.revalidate(self.store,db,job['metadata'])
                 if job['paper_id'] and self.store._paper(db,job['paper_id'])['version']!=job['paper_version']:
                     raise ConflictError('原卷已经修改，请重新生成外发预览')
                 db.execute("UPDATE ai_jobs SET status='SENDING',updated_at=? WHERE id=?",(now(),ident))

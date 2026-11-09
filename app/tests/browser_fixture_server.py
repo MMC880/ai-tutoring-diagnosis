@@ -18,6 +18,8 @@ ocr_calls=0
 
 def fake_transport(config,key,payload):
     global ocr_calls
+    if 'JINXUE_PAPER_CHAT' in str(payload['messages'][0]['content']):
+        return {'choices':[{'message':{'content':'合成辅导建议：先核对顶点式符号，再安排同型复查。<script>不得执行</script>'},'finish_reason':'stop'}], 'usage':{'total_tokens':15}}
     content=payload['messages'][1]['content']
     try: text_body=json.loads(content) if isinstance(content,str) else None
     except ValueError: text_body=None

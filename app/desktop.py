@@ -13,7 +13,7 @@ import tempfile
 from server import make_server
 from store import Store
 
-DESKTOP_VERSION = '0.1.1'
+DESKTOP_VERSION = '0.2.0'
 HERE = Path(__file__).resolve().parent
 
 

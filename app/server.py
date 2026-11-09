@@ -97,6 +97,9 @@ class Handler(BaseHTTPRequestHandler):
         if route == '/api/backups': return self.store.backups()
         if route == '/api/ai/settings': return self.server.ai.settings()
         if route == '/api/ai/jobs': return self.server.ai.jobs()
+        m = re.fullmatch(r'/api/ai/jobs/([a-f0-9]{32})/markdown',route)
+        if m:
+            self.send(200,self.server.ai.chat_markdown(m[1]),'text/markdown; charset=utf-8','chat-'+m[1]+'.md'); return
         if route == '/api/summary': return self.store.summary(query.get('batch', [''])[0])
         if route == '/api/pilot/runs':return pilot.Pilot(self.store).list()
         m=re.fullmatch(r'/api/pilot/runs/([a-f0-9]{32})(?:/versions/([1-9][0-9]{0,5}))?',route)
@@ -156,7 +159,7 @@ class Handler(BaseHTTPRequestHandler):
             elif m[1] == 'print' and not m[4]: self.send(200, print_html(title, blocks), 'text/html; charset=utf-8')
             else: self.send(404, {'error': '路径不存在'})
             return
-        allowed = {'/': 'index.html', '/app.js': 'app.js', '/registration-panel.js':'registration-panel.js', '/workspace-navigation.js':'workspace-navigation.js', '/ai-panel.js':'ai-panel.js', '/vision-panel.js':'vision-panel.js','/learning-panel.js':'learning-panel.js','/tutoring-panel.js':'tutoring-panel.js','/photo-panel.js':'photo-panel.js','/continuation-panel.js':'continuation-panel.js','/grading-panel.js':'grading-panel.js','/archive-panel.js':'archive-panel.js','/report-panel.js':'report-panel.js','/date-panel.js':'date-panel.js','/question-navigation.js':'question-navigation.js','/pilot-panel.js':'pilot-panel.js','/intake-panel.js':'intake-panel.js','/materials-panel.js':'materials-panel.js','/review-flow.js':'review-flow.js','/class-panel.js':'class-panel.js','/followup-panel.js':'followup-panel.js','/queue-panel.js':'queue-panel.js','/teaching-panel.js':'teaching-panel.js','/teaching-catalog.js':'teaching-catalog.js', '/styles.css': 'styles.css', '/print.js': 'print.js', '/assets/synthetic-homework.png': 'assets/synthetic-homework.png'}
+        allowed = {'/paper-chat-panel.js':'paper-chat-panel.js', '/': 'index.html', '/app.js': 'app.js', '/registration-panel.js':'registration-panel.js', '/workspace-navigation.js':'workspace-navigation.js', '/ai-panel.js':'ai-panel.js', '/vision-panel.js':'vision-panel.js','/learning-panel.js':'learning-panel.js','/tutoring-panel.js':'tutoring-panel.js','/photo-panel.js':'photo-panel.js','/continuation-panel.js':'continuation-panel.js','/grading-panel.js':'grading-panel.js','/archive-panel.js':'archive-panel.js','/report-panel.js':'report-panel.js','/date-panel.js':'date-panel.js','/question-navigation.js':'question-navigation.js','/pilot-panel.js':'pilot-panel.js','/intake-panel.js':'intake-panel.js','/materials-panel.js':'materials-panel.js','/review-flow.js':'review-flow.js','/class-panel.js':'class-panel.js','/followup-panel.js':'followup-panel.js','/queue-panel.js':'queue-panel.js','/teaching-panel.js':'teaching-panel.js','/teaching-catalog.js':'teaching-catalog.js', '/styles.css': 'styles.css', '/print.js': 'print.js', '/assets/synthetic-homework.png': 'assets/synthetic-homework.png'}
         if route in allowed:
             p = HERE / 'web' / allowed[route]
             if p.is_file():

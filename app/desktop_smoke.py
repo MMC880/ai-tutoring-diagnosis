@@ -46,7 +46,14 @@ SCRIPT = r"""
  await click('[data-action=report-preview]');await until(()=>!!document.querySelector('#report-export'));
  await click('input[name=report-format][value=pdf]');await click('#report-consent');await click('#report-export');
  await until(()=>!document.querySelector('#modal').open);
+ await api('ai/settings',{...config,api_key:'SYN-NATIVE-KEY'});
+ const chat=await api('ai/prepare',{mode:'paper_chat',message:'请给老师一个复习建议',sources:[{paper_id:p.id,version:p.version,question_ids:['Q01']}],images:[]});
+ const reply=await api('ai/jobs/'+chat.id+'/send',{consent:true});
+ if(reply.status!=='SUCCEEDED'||!reply.result.answer.includes('合成对话建议'))throw Error('Native paper chat did not persist ordinary text');
+ if((await api('bootstrap')).event_count!==2)throw Error('Chat changed confirmed student history');
+ await api('ai/clear-key',{});
  window.__jinxueSmoke={ok:true,paper_id:p.id,student_id:p.student_id,version:p.version,checks:{native_ui_loaded:true,review_two_questions:true,teacher_confirmation:true,archive_knowledge_visible:true,history_preserved:true,retest_separate:true,no_model_key:true,synthetic_backup_restore:true}};
+ window.__jinxueSmoke.chat_id=chat.id;window.__jinxueSmoke.checks.paper_chat_saved_without_auto_archive=true;
 })().catch(e=>window.__jinxueSmoke={ok:false,error:String(e)})
 """
 
@@ -55,6 +62,12 @@ def run_smoke(window, loaded, service, report, report_path):
     from desktop import write_report
     opened_urls = []
     original_open = webbrowser.open
+    original_transport = service.server.ai.transport
+    def synthetic_chat_transport(config, key, payload):
+        if 'JINXUE_PAPER_CHAT' not in str(payload['messages'][0]['content']):
+            raise RuntimeError('Synthetic desktop test refuses any real provider request')
+        return {'choices':[{'message':{'content':'合成对话建议：先核对括号内符号，再复查同型题。'},'finish_reason':'stop'}]}
+    service.server.ai.transport = synthetic_chat_transport
     # Only synthetic mode captures OS-browser dispatch; normal startup is untouched.
     webbrowser.open = lambda url, *args, **kwargs: opened_urls.append(str(url)) or True
     try:
@@ -79,6 +92,11 @@ def run_smoke(window, loaded, service, report, report_path):
             raise RuntimeError('个人报告未交给系统浏览器正确的本机打印地址: ' + repr(opened_urls))
         result['checks']['profile_pdf_native_handoff'] = True
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(service.url + '/api/ai/jobs/' + result['chat_id'] + '/markdown') as response:
+            markdown = response.read().decode('utf-8')
+        if '合成对话建议' not in markdown or 'SYN-NATIVE-KEY' in markdown:
+            raise RuntimeError('Native chat Markdown export missing answer or leaked key')
+        result['checks']['paper_chat_markdown_valid'] = True
         from PIL import Image
         for fmt in ('JPEG', 'PNG', 'WEBP'):
             image = io.BytesIO()
@@ -117,4 +135,5 @@ def run_smoke(window, loaded, service, report, report_path):
         write_report(report_path, report)
     finally:
         webbrowser.open = original_open
+        service.server.ai.transport = original_transport
         window.destroy()

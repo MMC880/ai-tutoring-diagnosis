@@ -1,6 +1,6 @@
 'use strict';
 // Page IDs remain stable for existing links; grouping only changes the visible shell.
-const workspaceGroups={profile:'profile',practice:'profile',queue:'profile',registration:'intake',intake:'intake',review:'intake',class:'class',settings:'settings',ai:'settings',teaching:'settings',backup:'settings',pilot:'settings'};
+const workspaceGroups={profile:'profile',practice:'profile',queue:'profile',registration:'intake',intake:'intake',review:'intake',class:'class',settings:'settings',ai:'settings','paper-chat':'settings',teaching:'settings',backup:'settings',pilot:'settings'};
 function workspaceButton(page,label,active=view===page){
  return `<button data-view="${page}" class="${active?'active':''}"${active?' aria-current="page"':''}>${label}</button>`;
 }
@@ -12,7 +12,7 @@ function workspaceSubnavigationHTML(){
  const group=workspaceGroups[view];let links=[];
  if(group==='profile')links=[['profile','学习档案'],['queue','补练待办（全部学生）'],...(view==='practice'?[['practice','当前作业补练']]:[])];
  if(group==='intake')links=[['registration','选学生和作业'],['intake','批次收件'],...(paper()&&(view!=='registration'||registrationReviewMatchesStudent())?[['review','当前整卷核对']]:[]),...(view==='review'&&paper()?[['practice','这份作业的补练']]:[])];
- if(group==='settings')links=[['settings','设置首页'],['ai','AI 服务'],['teaching','教学资料'],['backup','本地备份'],['pilot','试点记录']];
+ if(group==='settings')links=[['settings','设置首页'],['ai','AI 服务'],...(['ai','paper-chat'].includes(view)?[['paper-chat','试卷对话']]:[]),['teaching','教学资料'],['backup','本地备份'],['pilot','试点记录']];
  if(!links.length)return '';
  return `<nav class="workspace-subnav" aria-label="当前功能的子入口">${links.map(([page,label])=>workspaceButton(page,label)).join('')}</nav>`;
 }
