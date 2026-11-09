@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+python-multipart
+Pillow==12.3.0
+httpx
+skills-ref @ git+https://github.com/agentskills/agentskills.git@83021e2be457a9b6679148719c1f6074f0ad975e#subdirectory=skills-ref
