@@ -22,18 +22,28 @@ def save_document(root, filename, data):
         raise ValidationError('仅支持 15MB 以内的 PNG、JPG、WebP、PDF、DOCX')
     warnings, extracted = [], ''
     mime = MIMES[ext]
+    image_info = {}
     try:
         if ext in ('.png', '.jpg', '.jpeg', '.webp'):
             from PIL import Image
             with Image.open(io.BytesIO(data)) as img:
                 if img.width * img.height > 30_000_000:
                     raise ValueError('图片像素过大')
-                if img.format not in ('PNG', 'JPEG', 'WEBP'):
-                    raise ValueError('图片实际类型为' + str(img.format) + '，目前支持PNG、JPEG和WebP')
-                mime = {'PNG': 'image/png', 'JPEG': 'image/jpeg', 'WEBP': 'image/webp'}[img.format]
+                if img.format not in ('PNG', 'JPEG', 'WEBP', 'MPO'):
+                    raise ValueError('图片实际类型为' + str(img.format) + '，目前支持PNG、JPEG、WebP和MPO主图')
+                mime = {'PNG': 'image/png', 'JPEG': 'image/jpeg', 'WEBP': 'image/webp', 'MPO': 'image/jpeg'}[img.format]
                 if mime != MIMES[ext]:
                     warnings.append('文件后缀与实际编码不同；按实际图片类型读取，原文件字节保留。')
-                img.verify()
+                if img.format == 'MPO':
+                    frames = img.n_frames
+                    if not 1 <= frames <= 100:
+                        raise ValueError('MPO帧数异常或超过100帧')
+                    image_info = dict(image_format='MPO',frame_count=frames)
+                    img.seek(0)
+                    img.load()  # JPEG verify() alone does not decode truncated data.
+                    warnings.append(f'MPO包含{frames}帧：当前仅预览和分析第一帧主图；其他帧保留在原件中，未自动拆成作业页或核验。')
+                else:
+                    img.verify()
             warnings.append('图片已本地保存，尚未自动识别；请人工录入或导入已核对的结构化草稿。')
         elif ext == '.docx':
             with zipfile.ZipFile(io.BytesIO(data)) as z:
@@ -70,6 +80,7 @@ def save_document(root, filename, data):
     ident = uuid.uuid4().hex
     meta = dict(id=ident, filename=filename, storage_name=ident + ext, mime=mime,
                 size=len(data), sha256=hashlib.sha256(data).hexdigest(), extracted_text=extracted, warnings=warnings)
+    meta.update(image_info)
     (folder / meta['storage_name']).write_bytes(data)
     (folder / (ident + '.json')).write_text(json.dumps(meta, ensure_ascii=False), encoding='utf-8')
     return meta

@@ -98,17 +98,28 @@ def run_smoke(window, loaded, service, report, report_path):
             raise RuntimeError('Native chat Markdown export missing answer or leaked key')
         result['checks']['paper_chat_markdown_valid'] = True
         from PIL import Image
-        for fmt in ('JPEG', 'PNG', 'WEBP'):
+        mpo_files = []
+        for fmt in ('JPEG', 'PNG', 'WEBP', 'MPO'):
             image = io.BytesIO()
-            Image.new('RGB', (100, 120), 'white').save(image, format=fmt)
+            if fmt == 'MPO':
+                Image.new('RGB',(100,120),'red').save(image,format='MPO',save_all=True,
+                    append_images=[Image.new('RGB',(100,120),'blue')])
+            else:
+                Image.new('RGB', (100, 120), 'white').save(image, format=fmt)
             request = urllib.request.Request(service.url + '/api/documents',
                 data=json.dumps({'filename': 'synthetic-' + fmt + '.jpg', 'data': base64.b64encode(image.getvalue()).decode()}).encode(),
                 headers={'Content-Type': 'application/json', 'X-Jinxue-Token': service.server.token})
             with opener.open(request) as response:
                 meta = json.load(response)
-            if meta['mime'] != {'JPEG':'image/jpeg','PNG':'image/png','WEBP':'image/webp'}[fmt]:
+            if meta['mime'] != {'JPEG':'image/jpeg','PNG':'image/png','WEBP':'image/webp','MPO':'image/jpeg'}[fmt]:
                 raise RuntimeError('Frozen photo actual-format handling failed: ' + fmt)
             result['checks']['photo_import_' + fmt.lower()] = True
+        for index, color in enumerate(('red','green','blue','yellow','magenta','cyan')):
+            raw = io.BytesIO()
+            Image.new('RGB',(160,120),color).save(raw,format='MPO',save_all=True,
+                append_images=[Image.new('RGB',(160,120),'white')])
+            mpo_files.append(dict(filename=f'synthetic-mpo-{index+1}.jpg',data=base64.b64encode(raw.getvalue()).decode()))
+        (Path(report_path).parent / 'mpo-input.json').write_text(json.dumps(mpo_files),encoding='utf-8')
         with opener.open(opened_urls[0]) as response:
             report_html = response.read().decode('utf-8')
         if '合成学生A' not in report_html or '教师核对稿' not in report_html:
@@ -129,7 +140,7 @@ def run_smoke(window, loaded, service, report, report_path):
         report.update(ok=True, status='SMOKE_PASSED', smoke=result)
         write_report(report_path, report)
         # Brief inspection window for an optional local CDP screenshot driver.
-        time.sleep(12)
+        time.sleep(20)
     except Exception as exc:
         report.update(ok=False, status='SMOKE_FAILED', error=str(exc))
         write_report(report_path, report)

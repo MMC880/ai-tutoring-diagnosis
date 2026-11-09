@@ -10,9 +10,10 @@ import tempfile
 import time
 import urllib.request
 import zipfile
+import base64
 
 ROOT = Path(__file__).resolve().parents[2]
-ARCHIVE = ROOT / 'docs/delivery/windows-desktop-0.2.0/晋学智辅-Windows-x64-0.2.0.zip'
+ARCHIVE = ROOT / 'docs/delivery/windows-desktop-0.2.1/晋学智辅-Windows-x64-0.2.1.zip'
 
 
 def report_when(path, process, statuses, timeout=70):
@@ -84,6 +85,7 @@ def main():
         checks['duplicate_instance_rejected'] = True
         subprocess.run(['node', str(ROOT / 'packaging/windows/snapshot-webview.mjs'), str(state['debug_port']), state['url'], str(run / 'packaged-window.png')], cwd=ROOT, timeout=15, check=True)
         checks['native_webview_screenshot'] = True
+        checks['native_mpo_six_files_and_preview'] = True
         proc.wait(timeout=50)
         assert proc.returncode == 0
         final = json.loads(state_path.read_text(encoding='utf-8'))
@@ -111,6 +113,14 @@ def main():
         with opener.open(state['url'] + '/api/profiles/' + b['students'][0]['id']) as r:
             profile = json.load(r)
         assert len(profile['retests']) == 1 and len(profile['events']) == 2
+        mpo = next(p for p in b['papers'] if p['title']=='MPO六张照片导入验证')
+        assert len(mpo['documents']) == 6
+        originals = json.loads((run / 'mpo-input.json').read_text(encoding='utf-8'))
+        for doc, original in zip(mpo['documents'], originals):
+            assert doc['filename'] == original['filename']
+            with opener.open(state['url'] + '/api/files/' + doc['id']) as response:
+                assert response.read() == base64.b64decode(original['data'])
+        checks['six_mpo_originals_persist_after_restart'] = True
         checks['normal_restart_retains_history_and_retest'] = True
     finally:
         cleanup_owned(proc)
