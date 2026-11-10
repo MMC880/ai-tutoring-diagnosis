@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Menu, session, ipcMain } = require('electron');
 const path = require('node:path');
+const { manageData } = require('./data-actions.cjs');
 const ROOT = path.resolve(__dirname, '..');
 const ORIGIN = 'http://127.0.0.1:5179';
 app.setPath('userData', path.join(ROOT, '.local-data', 'electron-profile'));
@@ -35,11 +36,21 @@ function openWindow(floating = false) {
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true },
   });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  win.webContents.on('will-navigate', (event, url) => { if (new URL(url).origin !== ORIGIN) event.preventDefault(); });
+  win.webContents.on('will-navigate', (event, value) => {
+    const url = new URL(value);
+    const download = url.origin === 'http://127.0.0.1:8019' &&
+      (/^\/api\/learning\/original\/[A-Za-z0-9_-]+\/[a-f0-9]{64}$/.test(url.pathname) ||
+       /^\/api\/learning\/practice\/F-[a-f0-9]{32}$/.test(url.pathname));
+    if (url.origin !== ORIGIN && !download) event.preventDefault();
+  });
   win.loadURL(ORIGIN + (floating ? '/?floating=1' : '/'));
   return win;
 }
 app.whenReady().then(() => {
+  ipcMain.handle('jinxue:manage-data', (event, action) => {
+    if (!trustedSender(event, mainWindow)) throw Error('仅主窗口可管理本地资料');
+    return manageData(mainWindow, action, path.join(ROOT, '.local-data', 'desktop-settings.json'), process.env.JINXUE_DESKTOP_TOKEN);
+  });
   ipcMain.handle('jinxue:open-agent', (event, context) => {
     if (!trustedSender(event, mainWindow)) throw Error('仅主窗口可打开 AI Agent');
     return openAgent(context);

@@ -152,6 +152,10 @@ class ArchiveStore:
         teacher_note: str = '',
         assignment_date: str | None = None,
     ) -> dict:
+        with self._index_lock:
+            return self._save_task(student_id, subject, files, teacher_note, assignment_date)
+
+    def _save_task(self, student_id, subject, files, teacher_note='', assignment_date=None):
         if not files:
             raise ValueError('至少需要一份作业原件')
         if len(files) > 12:

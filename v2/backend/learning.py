@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.archive import SUBJECTS, utc_now
 from backend.intake import RequestConflict
 from backend.feedback import vertex_feedback
+from backend.projection import effective
 
 
 class Scope(BaseModel):
@@ -54,6 +55,15 @@ class RetestInput(Scope):
     request_id: str = Field(pattern='^[A-Za-z0-9_-]{1,100}$')
 
 
+class CorrectionInput(Scope):
+    assignment_id: str = Field(min_length=1, max_length=100)
+    assignment_date: str = Field(max_length=10)
+    questions: list[str] = Field(max_length=200)
+    missing_pages: list[str] = Field(default_factory=list, max_length=100)
+    reason: str = Field(min_length=1, max_length=2000)
+    expected_revision: int = Field(ge=0)
+
+
 class LearningService:
     def __init__(self, intake):
         self.intake = intake
@@ -75,7 +85,23 @@ class LearningService:
                          (assignment_id, student_id, subject)).fetchone()
         if not row:
             raise KeyError('该学生该科没有这份作业')
-        return json.loads(row['receipt'])
+        return effective(db, json.loads(row['receipt']))
+
+    def correct(self, item: CorrectionInput):
+        from datetime import date
+        if item.assignment_date != '待补' and date.fromisoformat(item.assignment_date).isoformat() != item.assignment_date:
+            raise ValueError('日期需为YYYY-MM-DD或待补')
+        if not item.reason.strip() or len(set(item.questions)) != len(item.questions) or any(
+                not re.fullmatch(r'\d{1,3}(?:[.（(]\d{1,2}[）)]?)?', n) for n in item.questions):
+            raise ValueError('请填写唯一题号和更正理由')
+        if any(not p.strip() or len(p) > 200 for p in item.missing_pages):
+            raise ValueError('缺页说明不能为空或超过200字')
+        with self.connect() as db:
+            self.schema(db)
+            db.execute('BEGIN IMMEDIATE')
+            self.assignment(db, item.assignment_id, item.student_id, item.subject)
+            return self.append(db, 'CORRECTION', item.assignment_id,
+                               item.model_dump(exclude={'expected_revision'}), item.expected_revision)
 
     @staticmethod
     def events(db, kind=None):
@@ -126,7 +152,7 @@ class LearningService:
             raise ValueError('学科无效')
         with self.connect() as db:
             self.schema(db)
-            assignments = [json.loads(r['receipt']) for r in db.execute(
+            assignments = [effective(db, json.loads(r['receipt'])) for r in db.execute(
                 'SELECT receipt FROM assignments WHERE student_id=? AND subject=? ORDER BY rowid DESC', (student_id, subject))]
             events = [e for e in self.events(db, 'LINK') if e['student_id'] == student_id and e['subject'] == subject]
             feedback = [e for e in self.events(db, 'FEEDBACK') if e['student_id'] == student_id and e['subject'] == subject]
@@ -235,7 +261,7 @@ class LearningService:
             raise ValueError('学科无效')
         with self.connect() as db:
             self.schema(db)
-            records = [json.loads(r['receipt']) for r in db.execute('SELECT receipt FROM assignments WHERE subject=?', (subject,))]
+            records = [effective(db, json.loads(r['receipt'])) for r in db.execute('SELECT receipt FROM assignments WHERE subject=?', (subject,))]
             links = self.latest(self.events(db, 'LINK'), ['assignment_id', 'number'])
         by_id = {r['assignment_id']: r for r in records}
         confirmed = [l for l in links if l['status'] == 'CONFIRMED' and l['subject'] == subject and

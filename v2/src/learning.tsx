@@ -3,7 +3,7 @@ import type { Student } from './intake';
 
 const API = 'http://127.0.0.1:8019';
 type Original = { sha256: string; original_name: string; pages: number | null };
-type Assignment = { assignment_id: string; batch: string; assignment_date: string; questions: string[]; candidate_questions: string[]; files: Original[] };
+type Assignment = { assignment_id: string; batch: string; assignment_date: string; questions: string[]; candidate_questions: string[]; files: Original[]; correction_revision?: number; missing_pages?: string[] };
 type Link = { assignment_id: string; number: string; tag: string; status: string; revision: number; evidence_hash: string; page: number; quote: string };
 export async function api(url: string, body?: unknown) {
   const response = await fetch(API + url, body === undefined ? undefined : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -45,6 +45,11 @@ export function LearningPanel({ student, subject }: { student: Student | null; s
     setTag(link?.tag || ''); setDigest(link?.evidence_hash || assignment?.files[0]?.sha256 || '');
     setPage(link?.page || 1); setQuote(link?.quote || '');
   }, [assignmentId, number, link?.revision]);
+  useEffect(() => {
+    if (assignment && number && ![...assignment.questions, ...assignment.candidate_questions].includes(number)) {
+      setNumber(''); setTag(''); setQuote('');
+    }
+  }, [assignment, number]);
   async function save(status: string) {
     if (!student || !assignment) return;
     setBusy(true); setNotice('正在保存并回读…');
@@ -62,6 +67,7 @@ export function LearningPanel({ student, subject }: { student: Student | null; s
       <button disabled={busy} onClick={() => refresh(g => g + 1)}>刷新作业记录</button>
       <label>作业<select aria-label="学习作业" value={assignmentId} onChange={e => { setAssignment(e.target.value); setNumber(''); }}><option value="">请选择作业</option>{assignments.map(a => <option key={a.assignment_id} value={a.assignment_id}>{a.assignment_date} · {a.batch}</option>)}</select></label>
       {assignment ? <>
+        <Correction key={`${assignmentId}/${assignment.correction_revision || 0}`} assignment={assignment} scope={{ student_id: student!.id, subject }} updated={() => refresh(g => g + 1)} />
         <label>问题题号<select aria-label="问题题号" value={number} onChange={e => setNumber(e.target.value)}><option value="">请选择题号</option>{[...new Set([...assignment.questions, ...assignment.candidate_questions])].map(q => <option key={q} value={q}>第{q}题{assignment.questions.includes(q) ? '（教师提供）' : '（AI候选）'}</option>)}</select></label>
         {number ? <>
           <label>知识点<input aria-label="知识点" placeholder="例如：二次函数顶点式" value={tag} maxLength={100} onChange={e => setTag(e.target.value)} /></label>
@@ -81,6 +87,29 @@ export function LearningPanel({ student, subject }: { student: Student | null; s
   </section>;
 }
 
+function Correction({ assignment: a, scope, updated }: { assignment: Assignment; scope: { student_id: string; subject: string }; updated: () => void }) {
+  const [date, setDate] = useState(a.assignment_date === '待补' ? '' : a.assignment_date);
+  const [questions, setQuestions] = useState(a.questions.join('、'));
+  const [missing, setMissing] = useState((a.missing_pages || []).join('\n'));
+  const [reason, setReason] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    setBusy(true);
+    try { await api('/api/learning/correct', { ...scope, assignment_id: a.assignment_id, assignment_date: date || '待补',
+      questions: questions.trim() ? questions.trim().split(/[、,，\s]+/) : [], missing_pages: missing.split('\n').filter(v => v.trim()),
+      reason, expected_revision: a.correction_revision || 0 }); setNotice('已追加更正，原始回执保留'); updated(); }
+    catch (error) { setNotice(error instanceof Error ? error.message : '更正失败'); }
+    finally { setBusy(false); }
+  }
+  return <details><summary>老师更正／补日期与缺页</summary><p>填写更正后的完整错题清单；留空表示本次不再确认任何错题，不代表整卷全对。原记录保留。</p>
+    <label>作业日期<input aria-label="更正作业日期" type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
+    <label>更正后错题号<input aria-label="更正后错题号" value={questions} onChange={e => setQuestions(e.target.value)} placeholder="3、5、8" /></label>
+    <label>缺页或材料待补<textarea aria-label="缺页说明" value={missing} onChange={e => setMissing(e.target.value)} placeholder="每行一项，例如：第6页未提供（不算答错）" /></label>
+    <label>更正理由<textarea aria-label="更正理由" value={reason} onChange={e => setReason(e.target.value)} /></label>
+    <button disabled={busy || !reason.trim()} onClick={() => void save()}>追加更正并更新统计</button><p role="status">{notice}</p></details>;
+}
+
 type Feedback = { id: string; assignment_id: string; number: string; status: string; revision: number; tag: string; origin: string; explanation: string; review_advice: string; levels: { level: string; title: string; question: string; solution: string }[] };
 function FeedbackPanel({ scope, records, updated }: { scope: { student_id: string; subject: string; assignment_id: string; number: string }; records: Feedback[]; updated: () => void }) {
   const [notice, setNotice] = useState('');
@@ -90,9 +119,10 @@ function FeedbackPanel({ scope, records, updated }: { scope: { student_id: strin
   const [level, setLevel] = useState('A');
   const [independent, setIndependent] = useState(false);
   const [manual, setManual] = useState('');
+  const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   async function action(url: string, data: unknown) {
     setBusy(true); setNotice('正在保存…');
-    try { await api(url, data); setNotice('已保存并回读，原历史保留'); updated(); }
+    try { await api(url, data); setNotice('已保存并回读，原历史保留'); if (url.endsWith('/retest')) { setAnswer(''); setRequestId(crypto.randomUUID()); } updated(); }
     catch (error) { setNotice(error instanceof Error ? error.message : '保存失败'); }
     finally { setBusy(false); }
   }
@@ -102,9 +132,9 @@ function FeedbackPanel({ scope, records, updated }: { scope: { student_id: strin
     {records.map(f => <details key={f.id} open={records.length === 1}><summary>{f.tag} · {f.status === 'APPROVED' ? '教师已审核' : f.status === 'REJECTED' ? '已退回' : '待教师审核'}</summary>
       <p>{f.origin}</p><p>{f.explanation}</p>{f.levels.map(l => <section key={l.level}><strong>{l.level}档 · {l.title}</strong><p>{l.question}</p><details><summary>教师完整解答</summary><p>{l.solution}</p></details></section>)}<p>{f.review_advice}</p>
       {f.status === 'WAITING_TEACHER' ? <div className="actions"><button disabled={busy} onClick={() => void action('/api/learning/approve', { ...scope, feedback_id: f.id, expected_revision: f.revision, approved: true })}>老师审核通过</button><button disabled={busy} onClick={() => void action('/api/learning/approve', { ...scope, feedback_id: f.id, expected_revision: f.revision, approved: false })}>退回草稿</button></div> : null}
-      {f.status === 'APPROVED' ? <><label>本次练习档次<select aria-label="复测档次" value={level} onChange={e => setLevel(e.target.value)}><option>A</option><option>B</option><option>C</option></select></label><a href={`${API}/api/learning/practice/${f.id}?level=${level}`}>打开学生单档题面（无解答）</a>
+      {f.status === 'APPROVED' ? <><label>本次练习档次<select aria-label="复测档次" value={level} onChange={e => setLevel(e.target.value)}><option>A</option><option>B</option><option>C</option></select></label><a href={`${API}/api/learning/practice/${f.id}?level=${level}`}>下载学生单档题面（无解答）</a>
         <label>复测原答<textarea aria-label="复测原答" value={answer} onChange={e => setAnswer(e.target.value)} /></label><label>老师复核结果<select aria-label="复测结果" value={result} onChange={e => setResult(e.target.value)}><option value="PENDING">待确认</option><option value="CORRECT">本次答对</option><option value="PARTIAL">部分正确</option><option value="INCORRECT">本次答错</option></select></label><label><input type="checkbox" checked={independent} onChange={e => setIndependent(e.target.checked)} />老师确认本次独立完成</label>
-        <button disabled={busy || !answer.trim()} onClick={() => void action('/api/learning/retest', { ...scope, feedback_id: f.id, level, answer, result, independent, request_id: crypto.randomUUID() })}>登记复测并保留历史</button></> : null}
+        <button disabled={busy || !answer.trim()} onClick={() => void action('/api/learning/retest', { ...scope, feedback_id: f.id, level, answer, result, independent, request_id: requestId })}>登记复测并保留历史</button></> : null}
     </details>)}<p role="status">{notice}</p>
   </section>;
 }

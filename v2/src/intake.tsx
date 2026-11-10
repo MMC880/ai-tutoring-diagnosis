@@ -1,11 +1,11 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const API = 'http://127.0.0.1:8019';
 export type Student = { id: string; name: string; class_name?: string };
 type Material = { file: File; thumbnail: string; pages: number | null; warning: string; sha256: string };
 type Result = {
   status: string; text: string; flow_id: string; name?: string; class_name?: string; can_create?: boolean;
-  matches?: Student[]; receipt?: { student: Student; subject: string; assignment_id: string };
+  matches?: Student[]; file_count?: number; receipt?: { student: Student; subject: string; assignment_id: string };
 };
 async function jsonResponse(response: Response) {
   const data = await response.json();
@@ -22,6 +22,8 @@ export function useIntake(student: Student | null, subject: string, selected: (s
   const [correction, setCorrection] = useState('');
   const request = useRef<{ signature: string; id: string } | null>(null);
   const adding = useRef(false);
+  const [waiting, setWaiting] = useState<Result[]>([]);
+  useEffect(() => { void fetch(`${API}/api/operations`).then(jsonResponse).then(r => setWaiting(r.pending)).catch(() => {}); }, []);
   // Never automatically resend local identity, receipts or history to the model.
   const localTexts = useRef(new Set<string>());
 
@@ -111,6 +113,7 @@ export function useIntake(student: Student | null, subject: string, selected: (s
     <p role="status">{notice}</p>
   </div>;
   const panel = <>
+    {!pending && waiting.length ? <details data-testid="pending-flows"><summary>继续上次待确认任务（{waiting.length}）</summary>{waiting.map(p => <button key={p.flow_id} type="button" disabled={working || materials.length > 0} onClick={() => { setPending(p); setWaiting(w => w.filter(v => v.flow_id !== p.flow_id)); }}>{p.class_name} · {p.name || '姓名待补'} · {p.file_count || ''}份材料</button>)}</details> : null}
     {pending ? <section className="intake-clarification" data-testid="intake-clarification">
       <strong>材料已暂存，请确认学生</strong><p>{pending.class_name} · {pending.name || '姓名待补'}；尚未归档</p>
       {pending.matches?.map(item => <button key={item.id} type="button" disabled={working} onClick={() => void resolve(item.id)}>{item.class_name || '班级待补'} · {item.name}（{item.id}）</button>)}

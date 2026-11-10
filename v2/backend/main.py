@@ -4,9 +4,11 @@ import io
 import json
 import sqlite3
 import warnings
+import os
+import secrets
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -18,7 +20,8 @@ from skills_ref import read_properties, validate
 from backend.archive import ArchiveStore, SUBJECTS
 from backend.provider import ProviderConfig, ProviderError, ProviderService
 from backend.intake import IntakeService, RequestConflict, inspect_file, analysis_image
-from backend.learning import LearningService, LinkInput, FeedbackInput, ApprovalInput, RetestInput
+from backend.learning import LearningService, LinkInput, FeedbackInput, ApprovalInput, RetestInput, CorrectionInput
+from backend.operations import Operations
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / 'skills' / 'math-error-review'
@@ -66,9 +69,10 @@ def create_app(db_path: Path | None = None, archive_root: Path | None = None, pr
     app.add_middleware(CORSMiddleware, allow_origins=['http://127.0.0.1:5179'],
                        allow_methods=['GET', 'POST'], allow_headers=['content-type'])
     database = db_path or ROOT / '.qa-temp' / 'environment.sqlite3'
-    archive = ArchiveStore(archive_root or ROOT / '.local-data' / 'v2-archive')
+    archive = ArchiveStore(archive_root or Path(os.environ.get('JINXUE_DATA_DIR', str(ROOT / '.local-data' / 'v2-archive'))))
     intake = IntakeService(archive)
     learning = LearningService(intake)
+    operations = Operations(intake)
     provider = ProviderService(archive, SKILL / 'SKILL.md', provider_transport)
 
     @app.exception_handler(RequestValidationError)
@@ -258,6 +262,31 @@ def create_app(db_path: Path | None = None, archive_root: Path | None = None, pr
         except (ValueError, KeyError, OSError, sqlite3.Error) as error:
             raise intake_error(error) from None
 
+    @app.post('/api/learning/correct')
+    def correct_assignment(payload: CorrectionInput):
+        try:
+            return learning.correct(payload)
+        except (ValueError, KeyError, OSError, sqlite3.Error) as error:
+            raise intake_error(error) from None
+
+    @app.get('/api/operations')
+    def operations_status():
+        return operations.status()
+
+    @app.post('/api/operations/{action}')
+    def native_operation(action: str, payload: dict, request: Request):
+        token = os.environ.get('JINXUE_DESKTOP_TOKEN', '')
+        if not token or not secrets.compare_digest(request.headers.get('X-Jinxue-Local-Token', ''), token):
+            raise HTTPException(403, '请使用桌面窗口的目录选择按钮')
+        try:
+            if action == 'backup':
+                return operations.backup(Path(payload['directory']))
+            if action == 'restore':
+                return operations.restore(Path(payload['backup']), Path(payload['directory']))
+            raise ValueError('不支持的目录操作')
+        except (ValueError, KeyError, OSError, sqlite3.Error) as error:
+            raise intake_error(error) from None
+
     @app.get('/api/learning/analysis')
     def learning_analysis(student_id: str, subject: str, class_name: str = ''):
         try:
@@ -290,7 +319,9 @@ def create_app(db_path: Path | None = None, archive_root: Path | None = None, pr
     def student_practice(ident: str, level: str = 'A'):
         from fastapi.responses import PlainTextResponse
         try:
-            return PlainTextResponse(learning.practice(ident, level))
+            return PlainTextResponse(learning.practice(ident, level), headers={
+                'Content-Disposition': f'attachment; filename=practice-{level}.md',
+                'X-Content-Type-Options': 'nosniff'})
         except (ValueError, KeyError, OSError, sqlite3.Error) as error:
             raise intake_error(error) from None
 
@@ -300,7 +331,7 @@ def create_app(db_path: Path | None = None, archive_root: Path | None = None, pr
         try:
             raw, item = learning.original(assignment_id, digest)
             return Response(raw, media_type='application/octet-stream', headers={
-                'Content-Disposition': "attachment; filename=original" + ('.pdf' if item['original_name'].lower().endswith('.pdf') else '.jpg'),
+                'Content-Disposition': 'attachment; filename=original' + Path(item['original_name']).suffix.lower(),
                 'X-Content-Type-Options': 'nosniff'})
         except (ValueError, KeyError, OSError, sqlite3.Error) as error:
             raise intake_error(error) from None

@@ -118,3 +118,31 @@ class LearningTests(unittest.TestCase):
         self.assertEqual(len(read['retests']), 1)
         self.assertEqual(read['assignments'][0]['questions'], ['3'])
         self.assertIn('不代表掌握', result.json()['notice'])
+
+    def test_teacher_correction_changes_current_counts_preserves_receipt_and_history(self):
+        self.link(status='CONFIRMED')
+        original = (self.root / self.a['relative_path']).read_bytes()
+        response = self.client.post('/api/learning/correct', json={'student_id': self.student['id'], 'subject': 'math',
+            'assignment_id': self.a['assignment_id'], 'assignment_date': '2026-11-10', 'questions': [],
+            'missing_pages': ['第6页未提供'], 'reason': '老师复核第3题实际正确', 'expected_revision': 0})
+        self.assertEqual(response.status_code, 200, response.text)
+        report = self.client.get('/api/learning/analysis', params={'student_id': self.student['id'], 'subject': 'math'}).json()
+        self.assertEqual(report['personal']['patterns'], [])
+        read = self.client.get('/api/learning/workspace', params={'student_id': self.student['id'], 'subject': 'math'}).json()
+        self.assertEqual(read['assignments'][0]['questions'], [])
+        self.assertEqual(read['assignments'][0]['assignment_date'], '2026-11-10')
+        self.assertEqual(read['assignments'][0]['original_questions'], ['3'])
+        self.assertEqual((self.root / self.a['relative_path']).read_bytes(), original)
+        history = self.client.post('/api/intake/query', json={'text': '历史错题', 'student_id': self.student['id'], 'subject': 'math'}).json()
+        self.assertEqual(history['confirmed_count'], 0)
+
+    def test_pending_flow_survives_restart(self):
+        out = io.BytesIO()
+        Image.new('RGB', (20, 20), 'yellow').save(out, 'PNG')
+        staged = self.client.post('/api/intake', data={'request_id': 'pending', 'instruction': '学生C数学作业归档，第5题错'}, files={'files': ('p.png', out.getvalue())}).json()
+        self.assertEqual(staged['status'], 'NEEDS_STUDENT')
+        with TestClient(create_app(archive_root=self.root)) as restarted:
+            waiting = restarted.get('/api/operations').json()
+            self.assertEqual(waiting['pending'][0]['flow_id'], staged['flow_id'])
+            resumed = restarted.post('/api/intake/resolve', json={'flow_id': staged['flow_id'], 'confirm_create': True})
+            self.assertEqual(resumed.json()['status'], 'SAVED')

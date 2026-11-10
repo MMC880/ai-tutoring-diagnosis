@@ -262,6 +262,10 @@ class ProviderService:
                 'receipts': receipts, 'tool_events': events, 'usage': usages}
 
     def _save_note(self, student_id, subject, markdown, model):
+        with self.archive._index_lock:
+            return self._save_note_locked(student_id, subject, markdown, model)
+
+    def _save_note_locked(self, student_id, subject, markdown, model):
         folder = self.archive.subject_dir(student_id, subject) / 'agent-notes'
         folder.mkdir(exist_ok=True)
         ident = 'agent-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S') + '-' + uuid.uuid4().hex[:12]

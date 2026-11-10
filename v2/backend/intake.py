@@ -21,6 +21,7 @@ from pypdf import PdfReader
 
 from backend.archive import SUBJECTS, utc_now
 from backend.instruction import parse_instruction, instruction_context
+from backend.projection import effective
 
 
 class RequestConflict(ValueError):
@@ -127,6 +128,12 @@ class IntakeService:
 
     @contextmanager
     def _connect(self):
+        with self.archive._index_lock:
+            with self._locked_connect() as db:
+                yield db
+
+    @contextmanager
+    def _locked_connect(self):
         self.database.parent.mkdir(parents=True, exist_ok=True)
         db = sqlite3.connect(self.database, timeout=20)
         db.row_factory = sqlite3.Row
@@ -310,13 +317,14 @@ class IntakeService:
                 '\n\n## AI候选／待老师确认\n' + '\n'.join('- 第' + q + '题' for q in r['candidate_questions']) +
                 '\n\n## 原件与SHA-256\n' + '\n'.join(f"- {f['original_name']}：{f['sha256']}；{f['relative_path']}" for f in r['files']) +
                 '\n\n## 教师原话\n' + r['teacher_instruction'] + '\n\n## 待补\n' + '\n'.join('- ' + p for p in r['pending']) +
+                ('\n\n## 教师更正\n' + r['correction_reason'] + f"（修订{r['correction_revision']}）\n" if r.get('correction_revision') else '') +
                 '\n\n单次错误不代表长期薄弱；未进行自动批改或知识点推断。\n')
 
     def latest(self, student_id, subject):
         with self._connect() as db:
             row = db.execute('SELECT receipt FROM assignments WHERE student_id=? AND subject=? ORDER BY rowid DESC LIMIT 1',
                              (student_id, subject)).fetchone()
-        return json.loads(row['receipt']) if row else None
+            return effective(db, json.loads(row['receipt'])) if row else None
 
     def history(self, text, student_id, subject):
         context = instruction_context(text, subject)
@@ -333,7 +341,7 @@ class IntakeService:
             raise ValueError('学科无效')
         with self._connect() as db:
             rows = db.execute('SELECT receipt FROM assignments WHERE student_id=? AND subject=? ORDER BY rowid DESC', (student_id, subject)).fetchall()
-        all_records = [json.loads(row['receipt']) for row in rows]
+            all_records = [effective(db, json.loads(row['receipt'])) for row in rows]
         undated = [r for r in all_records if r['assignment_date'] == '待补']
         month = bool(re.search(r'最近.{0,2}(?:月|30天)|近一个月', text))
         today = datetime.now(ZoneInfo('Asia/Shanghai')).date()
@@ -371,7 +379,13 @@ class IntakeService:
         if legacy_unreadable:
             lines.append(f'另有{len(legacy_unreadable)}份旧记录读取失败，未据此断言没有历史；请核对本地runs记录。')
         if knowledge_query:
-            lines.append('尚无经核对的知识点关联，不能据题号推断二次函数等知识点次数；请先补关联。')
+            from backend.learning import LearningService
+            report = LearningService(self).analysis(student_id, subject)['personal']
+            if report['patterns']:
+                lines.append('经老师确认的知识点关联（全部归档范围，不等同于本次时间筛选）：')
+                lines.extend(f"- {p['tag']}：{p['assignment_count']}份作业、{p['question_count']}道题；{p['suggestion']}" for p in report['patterns'])
+            else:
+                lines.append('尚无经核对的知识点关联，不能据题号推断二次函数等知识点次数；请先补关联。')
         if undated:
             lines.append(f'另有{len(undated)}份日期待补作业，未纳入最近30天统计。' if month else f'{len(undated)}份作业日期待补。')
         lines.append('AI候选不计为确认错误；单次记录不代表长期薄弱。历史查询在本地执行，未外发档案。')

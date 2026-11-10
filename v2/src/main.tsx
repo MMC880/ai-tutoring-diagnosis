@@ -5,6 +5,7 @@ import { AssistantRuntimeProvider, useLocalRuntime, ThreadPrimitive, MessagePrim
 import './style.css';
 import { useIntake } from './intake';
 import { LearningPanel } from './learning';
+import { OperationsPanel } from './operations';
 
 const API = 'http://127.0.0.1:8019';
 const agentView = new URLSearchParams(location.search).get('floating') === '1';
@@ -284,6 +285,7 @@ function App() {
       <p data-testid="provider-status" role="status">{connection}</p>
       <div className="agent-launch"><div><strong>AI Agent</strong><p className="muted">打开独立聊天窗口，添加图片并交代任务。</p></div><button type="button" disabled={openingAgent || configBusy || configDirty} onClick={() => void showAgent()}>打开 AI Agent</button></div>
     </details>
+    <OperationsPanel />
     <section className="status"><span>中文教学技能：<strong data-testid="skill">{subject === 'math' ? skill : '通用分析，学科专用技能待配置'}</strong></span><a href="/copilot.html">打开 CopilotKit 独立实验</a></section>
     {subjectButtons}
     {studentControls}
