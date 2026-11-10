@@ -23,6 +23,8 @@
 
 SQLite由Python自带，版本3.49.1；未另装数据库服务。`pip check`和`npm ls --depth=0`通过。
 
+2026-11-10指定模型接入没有新增或升级依赖、没有修改锁文件。复用httpx执行真实Chat Completions请求，Pillow重建所选图片，assistant-ui展示对话，Agent执行循环与受限文件工具由现有Python工程增量实现。前述依赖表中的“环境探针”用途已扩展为本轮开发原型，实际能力和限制见[接入报告](requirements/REAL_PROVIDER_TEST_REPORT.md)。
+
 ## 官方来源
 
 - [Electron仓库](https://github.com/electron/electron)与[官方安装教程](https://www.electronjs.org/docs/latest/tutorial/tutorial-first-app)：使用npm发布包和官方运行时，不克隆整套Chromium源码。运行时缓存ZIP位于E盘，官方安装器按包内checksums核验；electron.exe本机SHA256：`15e815a2d04aed1a01787354b93cd2cab425f339b3beaef4f9e4193647f5399b`。

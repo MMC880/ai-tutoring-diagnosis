@@ -15,7 +15,7 @@ let browser, desktop;
 const blocked=[];
 const errors=[];
 try {
-  const h=await (await fetch(base+'/health')).json();assert.equal(h.mode,'synthetic-only');record('FastAPI real HTTP health',h);
+  const h=await (await fetch(base+'/health')).json();assert.equal(h.mode,'simulation');record('FastAPI real HTTP health',h);
   const sql=await (await fetch(base+'/api/sqlite-probe',{method:'POST'})).json();assert.equal(sql.value,'中文读写验证');record('SQLite disk write/read in isolated probe',sql);
   const skill=await (await fetch(base+'/api/skill')).json();assert.equal(skill.display_name,'数学错题复盘');assert.ok(skill.instructions.includes('单次错误'));record('Official skills-ref Chinese skill read and validate',{name:skill.name,displayName:skill.display_name});
   browser=await chromium.launch({executablePath:'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',headless:true});

@@ -1,40 +1,71 @@
-"""Synthetic environment probes only. Never opens the 1.0 business database."""
+"""Local v2 archive and provider adapter. Never opens the 1.0 business database."""
 import hashlib
 import io
 import json
-import os
 import sqlite3
 import warnings
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel, Field
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from PIL import Image, UnidentifiedImageError
 from skills_ref import read_properties, validate
+
+from backend.archive import ArchiveStore, SUBJECTS
+from backend.provider import ProviderConfig, ProviderError, ProviderService
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / 'skills' / 'math-error-review'
 Image.MAX_IMAGE_PIXELS = 30_000_000
 
 
+class HistoryTurn(BaseModel):
+    role: str = Field(pattern='^(user|assistant)$')
+    text: str = Field(max_length=8000)
+
+
 class ChatInput(BaseModel):
     text: str = Field(min_length=1, max_length=8000)
     image_count: int = Field(default=0, ge=0, le=3)
+    imported_summary: str = Field(default='', max_length=20000)
+    images: list[str] = Field(default_factory=list, max_length=3)
+    history: list[HistoryTurn] = Field(default_factory=list, max_length=10)
+    student_id: str | None = Field(default=None, max_length=80)
+    subject: str = Field(default='math', pattern='^(math|english|physics|chemistry)$')
+    allow_save: bool = False
 
 
-def create_app(db_path: Path | None = None):
-    app = FastAPI(title='晋学智辅2.0环境探针', docs_url=None, redoc_url=None)
+class StudentInput(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    confirm_new: bool = False
+
+
+def create_app(db_path: Path | None = None, archive_root: Path | None = None, provider_transport=None):
+    app = FastAPI(title='晋学智辅2.0', docs_url=None, redoc_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=['127.0.0.1', 'localhost', 'testserver'])
     app.add_middleware(CORSMiddleware, allow_origins=['http://127.0.0.1:5179'],
                        allow_methods=['GET', 'POST'], allow_headers=['content-type'])
     database = db_path or ROOT / '.qa-temp' / 'environment.sqlite3'
+    archive = ArchiveStore(archive_root or ROOT / '.local-data' / 'v2-archive')
+    provider = ProviderService(archive, SKILL / 'SKILL.md', provider_transport)
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(request, error):
+        # Pydantic's default error includes submitted values, including credentials.
+        return JSONResponse(status_code=422, content={'detail': '请求参数无效，请检查填写内容和附件限制'})
 
     @app.get('/health')
     def health():
-        return {'status': 'ok', 'mode': 'synthetic-only', 'sqlite_version': sqlite3.sqlite_version}
+        return {
+            'status': 'ok',
+            'mode': provider.settings()['mode'],
+            'sqlite_version': sqlite3.sqlite_version,
+            'archive_ready': True,
+        }
 
     @app.post('/api/sqlite-probe')
     def sqlite_probe():
@@ -57,7 +88,98 @@ def create_app(db_path: Path | None = None):
 
     @app.post('/api/chat')
     def chat(payload: ChatInput):
-        return {'text': f'本地模拟回复：已接收“{payload.text}”，图片数量 {payload.image_count}。仅验证通信，未进行判题或调用外部模型。'}
+        try:
+            result = provider.chat(payload)
+            if result is not None:
+                return result
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        except KeyError:
+            raise HTTPException(404, '当前学生不存在，请重新选择') from None
+        except ProviderError as error:
+            raise HTTPException(502, str(error)) from None
+        imported = '已导入该生该科最新摘要，未附带全部原件。' if payload.imported_summary.strip() else '本次未导入历史摘要。'
+        return {
+            'mode': 'simulation',
+            'text': (
+                f'本地模拟回复：已接收“{payload.text}”，图片数量 {payload.image_count}。'
+                f'{imported}仅验证通信，未进行判题或调用外部模型。'
+            )
+        }
+
+    @app.get('/api/provider')
+    def provider_settings():
+        return provider.settings()
+
+    @app.post('/api/provider')
+    def configure_provider(payload: ProviderConfig):
+        try:
+            return provider.configure(payload)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+
+    @app.post('/api/provider/clear')
+    def clear_provider():
+        return provider.clear()
+
+    @app.post('/api/provider/test')
+    def test_provider():
+        try:
+            return provider.test()
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        except ProviderError as error:
+            raise HTTPException(502, str(error)) from None
+
+    @app.get('/api/students/{student_id}/subjects/{subject}/agent-notes')
+    def agent_notes(student_id: str, subject: str):
+        try:
+            return {'notes': provider.notes(student_id, subject)}
+        except KeyError:
+            raise HTTPException(404, '找不到该学生或学科') from None
+
+    @app.get('/api/subjects')
+    def subjects():
+        return {'subjects': archive.list_subjects()}
+
+    @app.get('/api/students')
+    def students():
+        return {'students': archive.list_students()}
+
+    @app.post('/api/students')
+    def upsert_student(payload: StudentInput):
+        try:
+            return archive.resolve_student(payload.name, confirm_new=payload.confirm_new)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.get('/api/students/{student_id}/subjects/{subject}/latest')
+    def latest_summary(student_id: str, subject: str):
+        try:
+            return archive.latest(student_id, subject)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.post('/api/students/{student_id}/subjects/{subject}/assignments')
+    async def save_assignment(
+        student_id: str,
+        subject: str,
+        teacher_note: str = Form(default=''),
+        assignment_date: str = Form(default=''),
+        files: list[UploadFile] = File(default=[]),
+    ):
+        if subject not in SUBJECTS:
+            raise HTTPException(404, '学科必须是数学、英语、物理或化学')
+        payloads: list[tuple[str, bytes]] = []
+        try:
+            for upload in files:
+                data = await upload.read(15 * 1024 * 1024 + 1)
+                await upload.close()
+                payloads.append((upload.filename or '未命名文件', data))
+            return archive.save_task(student_id, subject, payloads, teacher_note, assignment_date or None)
+        except (KeyError, ValueError) as error:
+            status = 404 if isinstance(error, KeyError) else 422
+            raise HTTPException(status, str(error)) from error
 
     @app.post('/api/copilot-agent')
     async def copilot_agent(payload: dict):

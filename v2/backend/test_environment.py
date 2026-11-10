@@ -17,7 +17,7 @@ class EnvironmentTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_health_sqlite_and_chinese_skill(self):
-        self.assertEqual(self.client.get('/health').json()['mode'], 'synthetic-only')
+        self.assertEqual(self.client.get('/health').json()['mode'], 'simulation')
         self.assertEqual(self.client.post('/api/sqlite-probe').json()['value'], '中文读写验证')
         skill = self.client.get('/api/skill').json()
         self.assertEqual(skill['display_name'], '数学错题复盘')
