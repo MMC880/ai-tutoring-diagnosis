@@ -258,6 +258,13 @@ def create_app(db_path: Path | None = None, archive_root: Path | None = None, pr
         except (ValueError, KeyError, OSError, sqlite3.Error) as error:
             raise intake_error(error) from None
 
+    @app.get('/api/learning/analysis')
+    def learning_analysis(student_id: str, subject: str, class_name: str = ''):
+        try:
+            return learning.analysis(student_id, subject, class_name)
+        except (ValueError, KeyError, OSError, sqlite3.Error) as error:
+            raise intake_error(error) from None
+
     @app.get('/api/learning/original/{assignment_id}/{digest}')
     def learning_original(assignment_id: str, digest: str):
         from fastapi.responses import Response

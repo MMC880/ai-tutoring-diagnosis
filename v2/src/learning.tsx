@@ -23,16 +23,19 @@ export function LearningPanel({ student, subject }: { student: Student | null; s
   const [quote, setQuote] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const [analysis, setAnalysis] = useState<{ personal: Stats; classroom: Stats & { class_name: string }; notice: string } | null>(null);
   const [generation, refresh] = useState(0);
   const assignment = assignments.find(a => a.assignment_id === assignmentId);
   const link = links.find(l => l.assignment_id === assignmentId && l.number === number);
   useEffect(() => {
     let current = true;
-    setAssignments([]); setLinks([]); setNotice('');
+    setAssignments([]); setLinks([]); setAnalysis(null);
     if (!student) return;
     void api(`/api/learning/workspace?student_id=${encodeURIComponent(student.id)}&subject=${subject}`)
       .then(data => { if (current) { setAssignments(data.assignments); setLinks(data.links); } })
       .catch(error => { if (current) setNotice(error.message); });
+    void api(`/api/learning/analysis?student_id=${encodeURIComponent(student.id)}&subject=${subject}`)
+      .then(data => { if (current) setAnalysis(data); }).catch(error => { if (current) setNotice(error.message); });
     return () => { current = false; };
   }, [student?.id, subject, generation]);
   useEffect(() => { setAssignment(''); setNumber(''); setTag(''); setDigest(''); setQuote(''); }, [student?.id, subject]);
@@ -70,5 +73,14 @@ export function LearningPanel({ student, subject }: { student: Student | null; s
       </> : <p>没有记录时，先在 AI Agent 中拖入材料并说“帮我归档”。</p>}
     </>}
     <p role="status">{notice}</p>
+    {analysis ? <div data-testid="learning-analysis"><StatsView title="这个学生的复习线索" data={analysis.personal} /><StatsView title={`班级共性 · ${analysis.classroom.class_name || '班级待补'}`} data={analysis.classroom} /><p className="muted">{analysis.notice}</p></div> : null}
+  </section>;
+}
+
+type Stats = { assignment_count: number; student_count: number; undated_count: number; confirmed_question_count: number; linked_question_count: number;
+  patterns: { tag: string; assignment_count: number; student_count: number; suggestion: string; evidence: { assignment_id: string; number: string; page: number; quote: string }[] }[] };
+function StatsView({ title, data }: { title: string; data: Stats }) {
+  return <section><h3>{title}</h3><p>覆盖{data.student_count}人 · {data.assignment_count}份作业 · 确认错题{data.confirmed_question_count}道，其中{data.linked_question_count}道已关联知识点；日期待补{data.undated_count}份。</p>
+    {data.patterns.length ? data.patterns.map(p => <details key={p.tag}><summary>{p.tag} · {p.assignment_count}份作业 / {p.student_count}人</summary><p>{p.suggestion}</p>{p.evidence.map(e => <p key={e.assignment_id + e.number}>作业{e.assignment_id.slice(0, 12)} · 第{e.number}题 · 第{e.page}页：{e.quote}</p>)}</details>) : <p className="muted">尚无确认关联，不凭题号推断知识点。</p>}
   </section>;
 }

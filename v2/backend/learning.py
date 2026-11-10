@@ -118,3 +118,41 @@ class LearningService:
         if hashlib.sha256(raw).hexdigest() != digest:
             raise OSError('原件校验失败')
         return raw, item
+
+    def analysis(self, student_id, subject, class_name=''):
+        student = self.archive.student(student_id)
+        if subject not in SUBJECTS:
+            raise ValueError('学科无效')
+        with self.connect() as db:
+            self.schema(db)
+            records = [json.loads(r['receipt']) for r in db.execute('SELECT receipt FROM assignments WHERE subject=?', (subject,))]
+            links = self.latest(self.events(db, 'LINK'), ['assignment_id', 'number'])
+        by_id = {r['assignment_id']: r for r in records}
+        confirmed = [l for l in links if l['status'] == 'CONFIRMED' and l['subject'] == subject and
+                     l['assignment_id'] in by_id and l['number'] in by_id[l['assignment_id']]['questions']]
+        def summarize(selected):
+            ids = {r['assignment_id'] for r in selected}
+            groups = {}
+            for item in confirmed:
+                if item['assignment_id'] in ids:
+                    groups.setdefault(item['tag'], []).append(item)
+            patterns = []
+            for tag, items in groups.items():
+                assignments = {i['assignment_id'] for i in items}
+                patterns.append({'tag': tag, 'assignment_count': len(assignments),
+                    'question_count': len(items), 'student_count': len({i['student_id'] for i in items}),
+                    'repeated': len(assignments) >= 2,
+                    'evidence': [{'assignment_id': i['assignment_id'], 'number': i['number'],
+                        'student_id': i['student_id'], 'page': i['page'], 'evidence_hash': i['evidence_hash'],
+                        'quote': i['quote'], 'revision': i['revision']} for i in items],
+                    'suggestion': '建议优先复习并安排独立复测' if len(assignments) >= 2 else '仅一次记录，先核实理解并观察后续'})
+            covered = sum(len(items) for items in groups.values())
+            return {'assignment_count': len(selected), 'student_count': len({r['student']['id'] for r in selected}),
+                    'undated_count': sum(r['assignment_date'] == '待补' for r in selected),
+                    'confirmed_question_count': sum(len(r['questions']) for r in selected),
+                    'linked_question_count': covered, 'patterns': sorted(patterns, key=lambda p: (-p['student_count'], -p['assignment_count'], p['tag']))}
+        classroom = class_name.strip() or student.get('class_name', '')
+        return {'student': student, 'subject': subject,
+                'personal': summarize([r for r in records if r['student']['id'] == student_id]),
+                'classroom': dict(summarize([r for r in records if classroom and r['class_name'] == classroom]), class_name=classroom),
+                'notice': '只统计教师明确错题及最新确认的知识点关联；AI候选不计。重复不代表长期薄弱；班级人数是已有归档覆盖人数，不是全班实际人数。不计算批改准确率。'}

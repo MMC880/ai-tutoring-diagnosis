@@ -58,3 +58,33 @@ class LearningTests(unittest.TestCase):
         self.assertEqual(self.link(student_id=other['id']).status_code, 404)
         self.assertEqual(self.link(tag='心理画像').status_code, 422)
         self.assertEqual(list(self.root.rglob('learning-*.md')), [])
+
+    def test_recurrence_uses_distinct_assignments_confirmed_links_and_class_scope(self):
+        self.link()
+        def report(student_id=None, class_name=None):
+            return self.client.get('/api/learning/analysis', params={'student_id': student_id or self.student['id'],
+                'subject': 'math', **({'class_name': class_name} if class_name else {})})
+        initial = report()
+        self.assertEqual(initial.status_code, 200, initial.text)
+        self.assertEqual(initial.json()['personal']['patterns'], [])
+        self.link(status='CONFIRMED', expected_revision=1)
+        first = report().json()
+        self.assertEqual(first['personal']['patterns'][0]['assignment_count'], 1)
+        self.assertFalse(first['personal']['patterns'][0]['repeated'])
+        self.link(status='CONFIRMED', expected_revision=2, quote='更正证据说明')
+        second = self.assignment('second', 'blue')
+        self.link(second, status='CONFIRMED')
+        other = self.client.post('/api/students', json={'name': '测试B', 'class_name': '二班', 'confirm_new': True}).json()['student']
+        third = self.assignment('third', 'green', other)
+        self.link(third, status='CONFIRMED')
+        result = report(class_name='一班').json()
+        pattern = result['personal']['patterns'][0]
+        self.assertEqual(pattern['assignment_count'], 2)
+        self.assertTrue(pattern['repeated'])
+        self.assertEqual(len(pattern['evidence']), 2)
+        self.assertEqual(result['classroom']['student_count'], 1)
+        self.assertEqual(result['classroom']['patterns'][0]['student_count'], 1)
+        self.assertEqual(result['classroom']['assignment_count'], 2)
+        self.assertIn('不代表长期薄弱', result['notice'])
+        english = self.client.get('/api/learning/analysis', params={'student_id': self.student['id'], 'subject': 'english'}).json()
+        self.assertEqual(english['personal']['patterns'], [])
