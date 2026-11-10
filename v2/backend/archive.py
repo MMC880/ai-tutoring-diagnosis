@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import threading
 import unicodedata
 import uuid
 from datetime import datetime, timezone
@@ -36,15 +37,12 @@ def slug_name(name: str) -> str:
 
 
 def extract_question_numbers(note: str) -> list[str]:
-    numbers = []
-    for match in QUESTION_NUMBERS.finditer(note or ''):
-        value = str(int(match.group(1)))
-        if value not in numbers:
-            numbers.append(value)
-    return numbers[:30]
+    from backend.instruction import question_evidence
+    return question_evidence(note)[0]
 
 
 class ArchiveStore:
+    _index_lock = threading.RLock()
     def __init__(self, root: Path):
         self.root = Path(root)
         self.index_path = self.root / 'index.json'
@@ -66,13 +64,22 @@ class ArchiveStore:
     def list_students(self) -> list[dict]:
         return list(self._load_index()['students'])
 
-    def resolve_student(self, name: str, confirm_new: bool = False) -> dict:
+    def resolve_student(self, name: str, confirm_new: bool = False, class_name: str = '') -> dict:
+        with self._index_lock:
+            return self._resolve_student(name, confirm_new, class_name)
+
+    def _resolve_student(self, name: str, confirm_new: bool, class_name: str) -> dict:
         display = slug_name(name)
+        base_name = display
+        class_name = class_name.strip()[:80]
         index = self._load_index()
-        matches = [item for item in index['students'] if item['name'] == display]
+        matches = [item for item in index['students'] if (item['name'] == display or item.get('base_name') == display)
+                   and (not class_name or item.get('class_name', '') == class_name)]
         if matches and not confirm_new:
+            if len(matches) > 1:
+                return {'status': 'ambiguous', 'matches': matches}
             return {'status': 'existing', 'student': matches[0], 'matches': matches}
-        if matches and confirm_new:
+        if confirm_new and any(item['name'] == display for item in index['students']):
             suffix = 2
             candidate = f'{display}{suffix}'
             taken = {item['name'] for item in index['students']}
@@ -83,7 +90,8 @@ class ArchiveStore:
         elif not matches and not confirm_new:
             return {'status': 'needs_create', 'name': display}
         student_id = f"s{len(index['students']) + 1:03d}"
-        record = {'id': student_id, 'name': display, 'created_at': utc_now()}
+        record = {'id': student_id, 'name': display, 'base_name': base_name,
+                  'class_name': class_name, 'created_at': utc_now()}
         index['students'].append(record)
         self._save_index(index)
         (self.root / 'students' / student_id).mkdir(parents=True, exist_ok=True)

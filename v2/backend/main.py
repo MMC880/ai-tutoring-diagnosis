@@ -17,6 +17,7 @@ from skills_ref import read_properties, validate
 
 from backend.archive import ArchiveStore, SUBJECTS
 from backend.provider import ProviderConfig, ProviderError, ProviderService
+from backend.intake import IntakeService, RequestConflict, inspect_file
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / 'skills' / 'math-error-review'
@@ -42,6 +43,20 @@ class ChatInput(BaseModel):
 class StudentInput(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     confirm_new: bool = False
+    class_name: str = Field(default='', max_length=80)
+
+
+class ResolveInput(BaseModel):
+    flow_id: str = Field(min_length=1, max_length=100)
+    student_id: str | None = Field(default=None, max_length=80)
+    confirm_create: bool = False
+    instruction: str | None = Field(default=None, max_length=8000)
+
+
+class QueryInput(BaseModel):
+    text: str = Field(min_length=1, max_length=8000)
+    student_id: str | None = Field(default=None, max_length=80)
+    subject: str = Field(default='math', pattern='^(math|english|physics|chemistry)$')
 
 
 def create_app(db_path: Path | None = None, archive_root: Path | None = None, provider_transport=None):
@@ -51,6 +66,7 @@ def create_app(db_path: Path | None = None, archive_root: Path | None = None, pr
                        allow_methods=['GET', 'POST'], allow_headers=['content-type'])
     database = db_path or ROOT / '.qa-temp' / 'environment.sqlite3'
     archive = ArchiveStore(archive_root or ROOT / '.local-data' / 'v2-archive')
+    intake = IntakeService(archive)
     provider = ProviderService(archive, SKILL / 'SKILL.md', provider_transport)
 
     @app.exception_handler(RequestValidationError)
@@ -149,16 +165,73 @@ def create_app(db_path: Path | None = None, archive_root: Path | None = None, pr
     @app.post('/api/students')
     def upsert_student(payload: StudentInput):
         try:
-            return archive.resolve_student(payload.name, confirm_new=payload.confirm_new)
+            return archive.resolve_student(payload.name, confirm_new=payload.confirm_new, class_name=payload.class_name)
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
 
     @app.get('/api/students/{student_id}/subjects/{subject}/latest')
     def latest_summary(student_id: str, subject: str):
         try:
-            return archive.latest(student_id, subject)
+            archive.student(student_id)
+            if subject not in SUBJECTS:
+                raise KeyError('学科无效')
+            current = intake.latest(student_id, subject)
+            legacy = archive.latest(student_id, subject)
+            if current and current['uploaded_at'] >= (legacy.get('updated_at') or ''):
+                return {'exists': True, 'markdown': intake.markdown(current),
+                        'updated_at': current['uploaded_at'], 'assignment_id': current['assignment_id'],
+                        'files': current['files'], 'questions': current['questions']}
+            return legacy
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
+
+    def intake_error(error):
+        if isinstance(error, RequestConflict):
+            return HTTPException(409, str(error))
+        if isinstance(error, KeyError):
+            return HTTPException(404, '找不到该学生或暂存流程')
+        if isinstance(error, ValueError):
+            return HTTPException(422, str(error))
+        return HTTPException(503, '本地保存或回读失败，未确认归档成功。可重试同一请求；原件可能已经暂存，不要改动原件目录。')
+
+    @app.post('/api/intake/inspect')
+    async def inspect_material(file: UploadFile):
+        try:
+            raw = await file.read(15 * 1024 * 1024 + 1)
+            return inspect_file(file.filename or 'unnamed', raw)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        finally:
+            await file.close()
+
+    @app.post('/api/intake')
+    async def intake_assignment(request_id: str = Form(), instruction: str = Form(),
+                                student_id: str = Form(default=''), subject: str = Form(default='math'),
+                                files: list[UploadFile] = File(default=[])):
+        try:
+            if len(files) > 12:
+                raise ValueError('一次最多12份材料')
+            payloads = [(upload.filename or 'unnamed', await upload.read(15 * 1024 * 1024 + 1)) for upload in files]
+            return intake.submit(request_id, instruction, payloads, student_id or None, subject)
+        except (ValueError, KeyError, OSError, sqlite3.Error) as error:
+            raise intake_error(error) from None
+        finally:
+            for upload in files:
+                await upload.close()
+
+    @app.post('/api/intake/resolve')
+    def resolve_intake(payload: ResolveInput):
+        try:
+            return intake.resolve(payload.flow_id, payload.student_id, payload.confirm_create, payload.instruction)
+        except (ValueError, KeyError, OSError, sqlite3.Error) as error:
+            raise intake_error(error) from None
+
+    @app.post('/api/intake/query')
+    def query_history(payload: QueryInput):
+        try:
+            return intake.history(payload.text, payload.student_id, payload.subject)
+        except (ValueError, KeyError, OSError, sqlite3.Error) as error:
+            raise intake_error(error) from None
 
     @app.post('/api/students/{student_id}/subjects/{subject}/assignments')
     async def save_assignment(

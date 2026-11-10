@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AssistantRuntimeProvider, useLocalRuntime, ThreadPrimitive, MessagePrimitive,
   ComposerPrimitive, SimpleImageAttachmentAdapter, type ChatModelAdapter } from '@assistant-ui/react';
 import './style.css';
+import { useIntake } from './intake';
 
 const API = 'http://127.0.0.1:8019';
 const agentView = new URLSearchParams(location.search).get('floating') === '1';
@@ -44,16 +45,35 @@ function App() {
   const [chatError, setChatError] = useState('');
   const [openingAgent, setOpeningAgent] = useState(false);
   const [contextReady, setContextReady] = useState(!agentView);
+  const keepConversation = useRef(false);
+  const blockedHistory = useRef(new Set<string>());
+  const closeHistoryScope = useRef<() => void>(() => {});
+  const intake = useIntake(student, subject, (chosen, chosenSubject) => {
+    keepConversation.current = true;
+    if (student?.id !== chosen.id || subject !== chosenSubject) {
+      closeHistoryScope.current();
+      setImported(''); setAllowSave(false); setNotes([]); setReceipts([]);
+    }
+    setStudent(chosen); setStudentName(chosen.name); setSubject(chosenSubject);
+  });
   const adapter: ChatModelAdapter = useMemo(() => ({
     async run({ messages, abortSignal }) {
       setChatError('');
       const last = messages.filter(m => m.role === 'user').at(-1);
       const text = last?.content.filter(p => p.type === 'text').map(p => p.text).join('\n') || '图片接收测试';
-      const images = (last?.attachments ?? []).flatMap(a => a.content.filter(p => p.type === 'image').map(p => p.image));
-      const history = messages.filter(m => (m.role === 'user' || m.role === 'assistant') && m !== last).slice(-10)
+      const history = messages.filter(m => (m.role === 'user' || m.role === 'assistant') && m !== last)
+        .filter(m => !blockedHistory.current.has(m.id))
+        .filter(m => !intake.localTexts.current.has(m.content.filter(p => p.type === 'text').map(p => p.text).join('\n'))).slice(-10)
         .map(m => ({ role: m.role, text: m.content.filter(p => p.type === 'text').map(p => p.text).join('\n').slice(0, 8000) }));
       setBusy(true);
       try {
+        if (agentView) {
+          const local = await intake.handle(text, abortSignal);
+          if (local !== null) return { content: [{ type: 'text', text: local }] };
+          if (intake.pending) throw Error('请先完成当前归档确认，再开始模型分析');
+        }
+        const images = agentView ? await intake.analysisImages() :
+          (last?.attachments ?? []).flatMap(a => a.content.filter(p => p.type === 'image').map(p => p.image));
         const response = await fetch(`${API}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text, images, history, image_count: images.length, imported_summary: imported,
             student_id: student?.id, subject, allow_save: allowSave }), signal: abortSignal });
@@ -70,8 +90,11 @@ function App() {
         throw error;
       } finally { setBusy(false); }
     },
-  }), [imported, student, subject, allowSave]);
+  }), [imported, student, subject, allowSave, intake]);
   const runtime = useLocalRuntime(adapter, { adapters: { attachments: new SimpleImageAttachmentAdapter() } });
+  closeHistoryScope.current = () => {
+    for (const message of runtime.thread.getState().messages) blockedHistory.current.add(message.id);
+  };
   const [health, setHealth] = useState('连接中');
   const [skill, setSkill] = useState('读取中');
   const [previews, setPreviews] = useState<{ name: string; src: string }[]>([]);
@@ -152,6 +175,7 @@ function App() {
 
   async function addFiles(files: File[]) {
     if (busy || configBusy) return;
+    if (agentView) { await intake.addFiles(files); return; }
     setNotice('');
     try {
       const incoming = files.filter(file => file.type.startsWith('image/') || file.name.toLowerCase().endsWith('.pdf'));
@@ -184,6 +208,7 @@ function App() {
     const data = await response.json();
     if (!response.ok) { setNotice(data.detail || '无法处理学生称呼'); return; }
     if (data.status === 'needs_create') { setPendingName(data.name); setNotice(`系统里还没有“${data.name}”，确认后新建档案`); return; }
+    if (data.status === 'ambiguous') { setNotice('有重名学生，请在归档指令中说明班级，确认卡会列出候选'); return; }
     setStudent(data.student); setPendingName(''); setNotice(`已选择 ${data.student.name}`);
   }
 
@@ -202,9 +227,12 @@ function App() {
   }
 
   useEffect(() => {
-    runtime.thread.cancelRun();
-    runtime.thread.reset();
-    setImported(''); setFiles([]); setPreviews([]); setReceipts([]); setNotes([]); setAllowSave(false);
+    if (keepConversation.current) { keepConversation.current = false; }
+    else {
+      runtime.thread.cancelRun(); runtime.thread.reset(); intake.reset();
+      blockedHistory.current.clear();
+      setImported(''); setFiles([]); setPreviews([]); setReceipts([]); setNotes([]); setAllowSave(false);
+    }
     if (!student) { setLatest(''); return; }
     let current = true;
     fetch(`${API}/api/students/${student.id}/subjects/${subject}/latest`)
@@ -263,17 +291,18 @@ function App() {
           </section>)}</details>
         </details> : null}
         <ThreadPrimitive.Viewport className="messages">
-          {agentView ? <ThreadPrimitive.Empty><div className="agent-empty"><h2>把作业发过来，说说要做什么</h2><p>可先添加图片，再输入任务。需要引用历史或保存结果时，展开“学生档案”。</p></div></ThreadPrimitive.Empty> : null}
+          {agentView ? <ThreadPrimitive.Empty><div className="agent-empty"><h2>拖入作业，告诉我是谁的</h2><p>例如：这是九年级一班学生A今天的数学作业，帮我归档。错题是第3、5、8题。</p></div></ThreadPrimitive.Empty> : null}
           <ThreadPrimitive.Messages components={{ UserMessage: Message, AssistantMessage: Message }} />
+          {agentView ? intake.panel : null}
         </ThreadPrimitive.Viewport>
         <section className="drop" data-testid="dropzone" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void addFiles(Array.from(e.dataTransfer.files)); }}>
-          <label>{agentView ? '添加图片或PDF，也可拖到这里' : '拖入该生该科作业原件，或选择图片（对话预览最多3张）'}<input aria-label="添加测试图片" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" multiple onChange={e => { void addFiles(Array.from(e.target.files ?? [])); e.target.value = ''; }} /></label>
-          <div className="previews">{previews.map((p, i) => <figure key={i}><img alt={`测试图片：${p.name}`} src={p.src} /><figcaption>{p.name}</figcaption></figure>)}</div>
+          <label>{agentView ? '添加图片或PDF（最多12份，每份15MB），也可拖到这里' : '拖入该生该科作业原件，或选择图片（对话预览最多3张）'}<input aria-label="添加测试图片" disabled={busy || intake.working} type="file" accept="image/png,image/jpeg,image/webp,application/pdf" multiple onChange={e => { void addFiles(Array.from(e.target.files ?? [])); e.target.value = ''; }} /></label>
+          {agentView ? intake.fileList : <div className="previews">{previews.map((p, i) => <figure key={i}><img alt={`测试图片：${p.name}`} src={p.src} /><figcaption>{p.name}</figcaption></figure>)}</div>}
           <p role="status">{notice}</p>
         </section>
         {!agentView ? archiveControls : null}
-        {agentView ? <p className="agent-scope muted">{providerReady ? '发送到已配置模型' : '本地模拟，未调用模型'}：本次消息、最近10条文字、所选图片{imported ? '及已导入摘要' : ''}。请先遮去身份信息。图片最多3张，每张2MB；PDF仅存本地。</p> : <p className="muted">本次发送：当前消息、最多3张所选图片、当前对话最近10条文字{imported ? '、主动导入的摘要' : ''}。发送前请自行遮去姓名、学校等身份信息；自动替换当前称呼不能保证全部去标识。PDF仅保存在本地，本轮不会发给模型。</p>}
-        <ComposerPrimitive.Root className="composer"><ComposerPrimitive.Input aria-label="消息" disabled={!contextReady} placeholder="例如：请分析这道题，标出待核实之处" /><ComposerPrimitive.Send disabled={!contextReady || configBusy || configDirty}>发送</ComposerPrimitive.Send></ComposerPrimitive.Root>
+        {agentView ? <p className="agent-scope muted">归档/查询仅本地。其他分析会发送本次文字、最近10条非归档对话、所选图片{imported ? '及主动导入摘要' : ''}到{providerReady ? '模型' : '本地模拟'}；请先去标识。最多3图、每图2MB，PDF不外发。</p> : <p className="muted">本次发送：当前消息、最多3张所选图片、当前对话最近10条文字{imported ? '、主动导入的摘要' : ''}。发送前请自行遮去姓名、学校等身份信息；自动替换当前称呼不能保证全部去标识。PDF仅保存在本地，本轮不会发给模型。</p>}
+        <ComposerPrimitive.Root className="composer"><ComposerPrimitive.Input aria-label="消息" disabled={!contextReady || intake.working} placeholder={agentView ? '学生A今天的数学作业，帮我归档，第3、5题错' : '例如：请分析这道题，标出待核实之处'} /><ComposerPrimitive.Send disabled={!contextReady || configBusy || configDirty || intake.working}>发送</ComposerPrimitive.Send></ComposerPrimitive.Root>
         {chatError ? <p role="alert">{chatError}</p> : null}
         {receipts.map(item => <p className="receipt" data-testid="agent-receipt" key={item.id}>已写入并回读待确认笔记：{item.relative_path} · SHA-256 {item.sha256}</p>)}
         {!agentView ? <details><summary>本地AI待确认笔记（{notes.length}）</summary>{notes.map(item => <section key={item.id}>

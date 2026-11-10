@@ -8,6 +8,7 @@
 |uvicorn|0.54.0|ASGI服务|
 |python-multipart|0.0.33|图片表单接收|
 |Pillow|12.3.0|实际图片解码；与旧版同版本，独立安装|
+|pypdf|6.20.0|2026-11-10作业归档新增：读取PDF页数；复用旧版固定版本，仅安装在v2/.venv|
 |httpx|0.28.1|后端接口测试|
 |skills-ref|0.1.0|官方Agent Skills校验与读取|
 |react / react-dom|19.3.1|前端运行|
@@ -24,6 +25,8 @@
 SQLite由Python自带，版本3.49.1；未另装数据库服务。`pip check`和`npm ls --depth=0`通过。
 
 2026-11-10指定模型接入没有新增或升级依赖、没有修改锁文件。复用httpx执行真实Chat Completions请求，Pillow重建所选图片，assistant-ui展示对话，Agent执行循环与受限文件工具由现有Python工程增量实现。前述依赖表中的“环境探针”用途已扩展为本轮开发原型，实际能力和限制见[接入报告](requirements/REAL_PROVIDER_TEST_REPORT.md)。
+
+随后本地作业归档增量仅新增`pypdf==6.20.0`，已写入`backend/requirements.in`与锁文件；未升级其他依赖、未新增npm包。SQLite沿用Python内置模块，归档库位于`v2/.local-data/v2-archive/intake.sqlite3`，不打开1.0业务数据库。见[归档交付记录](requirements/AGENT_INTAKE_DELIVERY.md)。
 
 ## 官方来源
 
