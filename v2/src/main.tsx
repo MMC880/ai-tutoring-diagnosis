@@ -31,6 +31,8 @@ function App() {
   const [pendingName, setPendingName] = useState('');
   const [note, setNote] = useState('');
   const [files, setFiles] = useState<File[]>([]);
+  const [archiveGeneration, refreshArchive] = useState(0);
+  const formRequest = useRef(crypto.randomUUID());
   const [latest, setLatest] = useState('');
   const [imported, setImported] = useState('');
   const [baseUrl, setBaseUrl] = useState('https://discovery-api.intern-ai.org.cn/v1');
@@ -218,16 +220,19 @@ function App() {
     setStudent(data.student); setPendingName(''); setNotice(`已选择 ${data.student.name}`);
   }
 
+  useEffect(() => { formRequest.current = crypto.randomUUID(); }, [student?.id, subject, note, files]);
+
   async function saveAssignment() {
     if (!student) { setNotice('请先选择或新建学生'); return; }
     if (!files.length) { setNotice('请先拖入该生该科作业原件'); return; }
     const form = new FormData();
     form.append('teacher_note', note);
+    form.append('request_id', formRequest.current);
     for (const file of files) form.append('files', file, file.name);
     const response = await fetch(`${API}/api/students/${student.id}/subjects/${subject}/assignments`, { method: 'POST', body: form });
     const data = await response.json();
     if (!response.ok) { setNotice(data.detail || '保存失败'); return; }
-    setLatest(data.markdown); setFiles([]);
+    setLatest(data.markdown); setFiles([]); formRequest.current = crypto.randomUUID(); refreshArchive(g => g + 1);
     await runtime.thread.composer.clearAttachments();
     setPreviews([]); setNotice(`已保存 ${data.subject_label} 作业 ${data.assignment_id}；如需给Agent查看，请再选择图片或导入摘要`);
   }
@@ -286,10 +291,10 @@ function App() {
       <div className="agent-launch"><div><strong>AI Agent</strong><p className="muted">打开独立聊天窗口，添加图片并交代任务。</p></div><button type="button" disabled={openingAgent || configBusy || configDirty} onClick={() => void showAgent()}>打开 AI Agent</button></div>
     </details>
     <OperationsPanel />
-    <section className="status"><span>中文教学技能：<strong data-testid="skill">{subject === 'math' ? skill : '通用分析，学科专用技能待配置'}</strong></span><a href="/copilot.html">打开 CopilotKit 独立实验</a></section>
+    <section className="status"><span>中文教学技能：<strong data-testid="skill">{subject === 'math' ? skill : '通用分析，学科专用技能待配置'}</strong></span>{import.meta.env.DEV ? <a href="/copilot.html">打开 CopilotKit 独立实验</a> : null}</section>
     {subjectButtons}
     {studentControls}
-    <LearningPanel student={student} subject={subject} />
+    <LearningPanel student={student} subject={subject} refreshKey={archiveGeneration} />
     </>}
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadPrimitive.Root className="thread">

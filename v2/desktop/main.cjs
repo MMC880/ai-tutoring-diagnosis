@@ -1,10 +1,15 @@
-const { app, BrowserWindow, Menu, session, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, session, ipcMain, dialog } = require('electron');
+const fs = require('node:fs');
 const path = require('node:path');
 const { manageData } = require('./data-actions.cjs');
 const ROOT = path.resolve(__dirname, '..');
 const ORIGIN = 'http://127.0.0.1:5179';
-app.setPath('userData', path.join(ROOT, '.local-data', 'electron-profile'));
-app.setPath('crashDumps', path.join(ROOT, '.qa-temp', 'crashes'));
+const HOME = process.env.JINXUE_HOME || (app.isPackaged ? path.join(path.dirname(app.getPath('exe')), 'JinxueData') : path.join(ROOT, '.local-data'));
+fs.mkdirSync(HOME, { recursive: true });
+app.setPath('userData', path.join(HOME, 'electron-profile'));
+app.setPath('crashDumps', path.join(HOME, 'crashes'));
+if (app.isPackaged && !app.requestSingleInstanceLock()) app.quit();
+let backendRuntime, stopping = false;
 let mainWindow, agentWindow;
 let agentContext = { subject: 'math', studentId: null };
 function validContext(context) {
@@ -46,10 +51,19 @@ function openWindow(floating = false) {
   win.loadURL(ORIGIN + (floating ? '/?floating=1' : '/'));
   return win;
 }
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  if (app.isPackaged) {
+    try {
+      backendRuntime = await require('./runtime.cjs').startBackend(HOME, path.join(ROOT, 'runtime'));
+      process.env.JINXUE_DESKTOP_TOKEN = backendRuntime.token;
+      backendRuntime.child.once('exit', () => {
+        if (!stopping) { dialog.showErrorBox('本地服务已停止', '请完全退出后重新打开。已有原件保留；未看到成功回执的操作请先查询再重试。'); app.quit(); }
+      });
+    } catch (error) { dialog.showErrorBox('晋学智辅无法启动', error.message); app.quit(); return; }
+  }
   ipcMain.handle('jinxue:manage-data', (event, action) => {
     if (!trustedSender(event, mainWindow)) throw Error('仅主窗口可管理本地资料');
-    return manageData(mainWindow, action, path.join(ROOT, '.local-data', 'desktop-settings.json'), process.env.JINXUE_DESKTOP_TOKEN);
+    return manageData(mainWindow, action, path.join(HOME, 'desktop-settings.json'), process.env.JINXUE_DESKTOP_TOKEN);
   });
   ipcMain.handle('jinxue:open-agent', (event, context) => {
     if (!trustedSender(event, mainWindow)) throw Error('仅主窗口可打开 AI Agent');
@@ -73,5 +87,9 @@ app.whenReady().then(() => {
     mainWindow.webContents.once('did-finish-load', () => setTimeout(() => mainWindow.close(), 2000));
   }
   if (process.argv.includes('--floating-test')) openAgent();
+});
+app.on('second-instance', () => { if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus(); } });
+app.on('before-quit', event => {
+  if (backendRuntime && !stopping) { event.preventDefault(); stopping = true; void backendRuntime.stop().finally(() => app.quit()); }
 });
 app.on('window-all-closed', () => app.quit());

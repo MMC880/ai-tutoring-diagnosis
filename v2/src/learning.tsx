@@ -12,7 +12,7 @@ export async function api(url: string, body?: unknown) {
   return data;
 }
 
-export function LearningPanel({ student, subject }: { student: Student | null; subject: string }) {
+export function LearningPanel({ student, subject, refreshKey = 0 }: { student: Student | null; subject: string; refreshKey?: number }) {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [links, setLinks] = useState<Link[]>([]);
   const [feedback, setFeedback] = useState<Feedback[]>([]);
@@ -25,22 +25,28 @@ export function LearningPanel({ student, subject }: { student: Student | null; s
   const [quote, setQuote] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
-  const [analysis, setAnalysis] = useState<{ personal: Stats; classroom: Stats & { class_name: string }; notice: string } | null>(null);
+  const [analysis, setAnalysis] = useState<{ personal: Stats; classroom: Stats & { class_name: string }; class_choices: string[]; notice: string } | null>(null);
+  const [className, setClassName] = useState('');
+  const [legacy, setLegacy] = useState<{ assignment_id: string; assignment_date: string }[]>([]);
   const [generation, refresh] = useState(0);
   const assignment = assignments.find(a => a.assignment_id === assignmentId);
   const link = links.find(l => l.assignment_id === assignmentId && l.number === number);
   useEffect(() => {
     let current = true;
-    setAssignments([]); setLinks([]); setFeedback([]); setRetests([]); setAnalysis(null);
     if (!student) return;
     void api(`/api/learning/workspace?student_id=${encodeURIComponent(student.id)}&subject=${subject}`)
-      .then(data => { if (current) { setAssignments(data.assignments); setLinks(data.links); setFeedback(data.feedback); setRetests(data.retests); } })
+      .then(data => { if (current) { setAssignments(data.assignments); setLinks(data.links); setFeedback(data.feedback); setRetests(data.retests); setLegacy(data.legacy || []); if (data.legacy_unreadable?.length) setNotice('部分旧记录读取失败，请核对本地runs记录'); } })
       .catch(error => { if (current) setNotice(error.message); });
-    void api(`/api/learning/analysis?student_id=${encodeURIComponent(student.id)}&subject=${subject}`)
+    return () => { current = false; };
+  }, [student?.id, subject, generation, refreshKey]);
+  useEffect(() => {
+    let current = true;
+    if (!student) return;
+    void api(`/api/learning/analysis?student_id=${encodeURIComponent(student.id)}&subject=${subject}&class_name=${encodeURIComponent(className)}`)
       .then(data => { if (current) setAnalysis(data); }).catch(error => { if (current) setNotice(error.message); });
     return () => { current = false; };
-  }, [student?.id, subject, generation]);
-  useEffect(() => { setAssignment(''); setNumber(''); setTag(''); setDigest(''); setQuote(''); }, [student?.id, subject]);
+  }, [student?.id, subject, generation, refreshKey, className]);
+  useEffect(() => { setAssignment(''); setNumber(''); setTag(''); setDigest(''); setQuote(''); setClassName(''); setLegacy([]); setAssignments([]); setLinks([]); setFeedback([]); setRetests([]); setAnalysis(null); }, [student?.id, subject]);
   useEffect(() => {
     setTag(link?.tag || ''); setDigest(link?.evidence_hash || assignment?.files[0]?.sha256 || '');
     setPage(link?.page || 1); setQuote(link?.quote || '');
@@ -65,6 +71,7 @@ export function LearningPanel({ student, subject }: { student: Student | null; s
     <h2>知识点与复习</h2><p className="muted">先选学生，再选已归档作业。题号来自老师记录；看原件后补知识点，不强求整卷识别。</p>
     {!student ? <p>请先选择学生</p> : <>
       <button disabled={busy} onClick={() => refresh(g => g + 1)}>刷新作业记录</button>
+      {legacy.length ? <details><summary>旧手工作业待续接（{legacy.length}）</summary><p>原件、旧摘要原地保留；续接后旧题号仍待核对，需要老师确认。</p>{legacy.map(a => <p key={a.assignment_id}>{a.assignment_date} · {a.assignment_id} <button disabled={busy} onClick={async () => { setBusy(true); try { await api('/api/learning/continue-legacy', { student_id: student!.id, subject, assignment_id: a.assignment_id }); setNotice('已续接，旧题号仍待核对，原件与历史未改'); refresh(g => g + 1); } catch (error) { setNotice(error instanceof Error ? error.message : '续接失败'); } finally { setBusy(false); } }}>续接这份旧作业</button></p>)}</details> : null}
       <label>作业<select aria-label="学习作业" value={assignmentId} onChange={e => { setAssignment(e.target.value); setNumber(''); }}><option value="">请选择作业</option>{assignments.map(a => <option key={a.assignment_id} value={a.assignment_id}>{a.assignment_date} · {a.batch}</option>)}</select></label>
       {assignment ? <>
         <Correction key={`${assignmentId}/${assignment.correction_revision || 0}`} assignment={assignment} scope={{ student_id: student!.id, subject }} updated={() => refresh(g => g + 1)} />
@@ -82,7 +89,7 @@ export function LearningPanel({ student, subject }: { student: Student | null; s
       </> : <p>没有记录时，先在 AI Agent 中拖入材料并说“帮我归档”。</p>}
     </>}
     <p role="status">{notice}</p>
-    {analysis ? <div data-testid="learning-analysis"><StatsView title="这个学生的复习线索" data={analysis.personal} /><StatsView title={`班级共性 · ${analysis.classroom.class_name || '班级待补'}`} data={analysis.classroom} /><p className="muted">{analysis.notice}</p></div> : null}
+    {analysis ? <div data-testid="learning-analysis"><StatsView title="这个学生的复习线索" data={analysis.personal} /><label>班级统计范围<select aria-label="班级统计范围" value={className} onChange={e => setClassName(e.target.value)}><option value="">学生名册班级（未填则待补）</option>{analysis.class_choices.map(c => <option key={c} value={c}>{c}</option>)}</select></label><StatsView title={`班级共性 · ${analysis.classroom.class_name || '班级待补'}`} data={analysis.classroom} /><p className="muted">{analysis.notice}</p></div> : null}
     {retests.length ? <details><summary>复测记录（{retests.length}）</summary>{retests.map(r => <p key={r.id}>{r.tag} · {r.result} · 作答：{r.answer}。{r.notice}</p>)}</details> : null}
   </section>;
 }
@@ -110,15 +117,31 @@ function Correction({ assignment: a, scope, updated }: { assignment: Assignment;
     <button disabled={busy || !reason.trim()} onClick={() => void save()}>追加更正并更新统计</button><p role="status">{notice}</p></details>;
 }
 
-type Feedback = { id: string; assignment_id: string; number: string; status: string; revision: number; tag: string; origin: string; explanation: string; review_advice: string; levels: { level: string; title: string; question: string; solution: string }[] };
+type Feedback = { id: string; assignment_id: string; number: string; status: string; revision: number; tag: string; origin: string; explanation: string; review_advice: string; applicable: boolean; applicability_notice: string; levels: { level: string; title: string; question: string; solution: string }[] };
 function FeedbackPanel({ scope, records, updated }: { scope: { student_id: string; subject: string; assignment_id: string; number: string }; records: Feedback[]; updated: () => void }) {
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [manual, setManual] = useState('');
+  async function action(url: string, data: unknown) {
+    setBusy(true); setNotice('正在保存…');
+    try { await api(url, data); setNotice('已保存并回读，原历史保留'); updated(); }
+    catch (error) { setNotice(error instanceof Error ? error.message : '保存失败'); }
+    finally { setBusy(false); }
+  }
+  return <section data-testid="feedback-panel"><h3>讲解、补练与复测</h3>
+    <button disabled={busy} onClick={() => void action('/api/learning/feedback', scope)}>准备三级补练草稿</button>
+    <details><summary>录入老师或Agent准备的三档内容</summary><p className="muted">其他知识点可用。粘贴JSON：explanation和levels，levels含A/B/C各档level、title、question、solution。保存后仍须审核。</p><textarea aria-label="手工补练内容" value={manual} onChange={e => setManual(e.target.value)} /><button disabled={busy || !manual.trim()} onClick={() => { try { const data = JSON.parse(manual); void action('/api/learning/feedback', { ...scope, explanation: data.explanation, levels: data.levels }); } catch { setNotice('内容不是有效JSON，请核对格式'); } }}>保存待审补练</button></details>
+    {records.map(f => <FeedbackRecord key={f.id} f={f} scope={scope} updated={updated} single={records.length === 1} />)}<p role="status">{notice}</p>
+  </section>;
+}
+
+function FeedbackRecord({ f, scope, updated, single }: { f: Feedback; scope: { student_id: string; subject: string; assignment_id: string; number: string }; updated: () => void; single: boolean }) {
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [answer, setAnswer] = useState('');
   const [result, setResult] = useState('PENDING');
   const [level, setLevel] = useState('A');
   const [independent, setIndependent] = useState(false);
-  const [manual, setManual] = useState('');
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   async function action(url: string, data: unknown) {
     setBusy(true); setNotice('正在保存…');
@@ -126,17 +149,13 @@ function FeedbackPanel({ scope, records, updated }: { scope: { student_id: strin
     catch (error) { setNotice(error instanceof Error ? error.message : '保存失败'); }
     finally { setBusy(false); }
   }
-  return <section data-testid="feedback-panel"><h3>讲解、补练与复测</h3>
-    <button disabled={busy} onClick={() => void action('/api/learning/feedback', scope)}>准备三级补练草稿</button>
-    <details><summary>录入老师或Agent准备的三档内容</summary><p className="muted">其他知识点可用。粘贴JSON：explanation和levels，levels含A/B/C各档level、title、question、solution。保存后仍须审核。</p><textarea aria-label="手工补练内容" value={manual} onChange={e => setManual(e.target.value)} /><button disabled={busy || !manual.trim()} onClick={() => { try { const data = JSON.parse(manual); void action('/api/learning/feedback', { ...scope, explanation: data.explanation, levels: data.levels }); } catch { setNotice('内容不是有效JSON，请核对格式'); } }}>保存待审补练</button></details>
-    {records.map(f => <details key={f.id} open={records.length === 1}><summary>{f.tag} · {f.status === 'APPROVED' ? '教师已审核' : f.status === 'REJECTED' ? '已退回' : '待教师审核'}</summary>
-      <p>{f.origin}</p><p>{f.explanation}</p>{f.levels.map(l => <section key={l.level}><strong>{l.level}档 · {l.title}</strong><p>{l.question}</p><details><summary>教师完整解答</summary><p>{l.solution}</p></details></section>)}<p>{f.review_advice}</p>
-      {f.status === 'WAITING_TEACHER' ? <div className="actions"><button disabled={busy} onClick={() => void action('/api/learning/approve', { ...scope, feedback_id: f.id, expected_revision: f.revision, approved: true })}>老师审核通过</button><button disabled={busy} onClick={() => void action('/api/learning/approve', { ...scope, feedback_id: f.id, expected_revision: f.revision, approved: false })}>退回草稿</button></div> : null}
-      {f.status === 'APPROVED' ? <><label>本次练习档次<select aria-label="复测档次" value={level} onChange={e => setLevel(e.target.value)}><option>A</option><option>B</option><option>C</option></select></label><a href={`${API}/api/learning/practice/${f.id}?level=${level}`}>下载学生单档题面（无解答）</a>
+  return <details data-feedback-id={f.id} open={single}><summary>{f.tag} · {!f.applicable ? '历史补练（当前不适用）' : f.status === 'APPROVED' ? '教师已审核' : f.status === 'REJECTED' ? '已退回' : '待教师审核'}</summary>
+      <p>{f.applicability_notice}</p><p>{f.origin}</p><p>{f.explanation}</p>{f.levels.map(l => <section key={l.level}><strong>{l.level}档 · {l.title}</strong><p>{l.question}</p><details><summary>教师完整解答</summary><p>{l.solution}</p></details></section>)}<p>{f.review_advice}</p>
+      {f.applicable && f.status === 'WAITING_TEACHER' ? <div className="actions"><button disabled={busy} onClick={() => void action('/api/learning/approve', { ...scope, feedback_id: f.id, expected_revision: f.revision, approved: true })}>老师审核通过</button><button disabled={busy} onClick={() => void action('/api/learning/approve', { ...scope, feedback_id: f.id, expected_revision: f.revision, approved: false })}>退回草稿</button></div> : null}
+      {f.applicable && f.status === 'APPROVED' ? <><label>本次练习档次<select aria-label="复测档次" value={level} onChange={e => setLevel(e.target.value)}><option>A</option><option>B</option><option>C</option></select></label><a href={`${API}/api/learning/practice/${f.id}?level=${level}`}>下载学生单档题面（无解答）</a>
         <label>复测原答<textarea aria-label="复测原答" value={answer} onChange={e => setAnswer(e.target.value)} /></label><label>老师复核结果<select aria-label="复测结果" value={result} onChange={e => setResult(e.target.value)}><option value="PENDING">待确认</option><option value="CORRECT">本次答对</option><option value="PARTIAL">部分正确</option><option value="INCORRECT">本次答错</option></select></label><label><input type="checkbox" checked={independent} onChange={e => setIndependent(e.target.checked)} />老师确认本次独立完成</label>
         <button disabled={busy || !answer.trim()} onClick={() => void action('/api/learning/retest', { ...scope, feedback_id: f.id, level, answer, result, independent, request_id: requestId })}>登记复测并保留历史</button></> : null}
-    </details>)}<p role="status">{notice}</p>
-  </section>;
+    <p role="status">{notice}</p></details>;
 }
 
 type Stats = { assignment_count: number; student_count: number; undated_count: number; confirmed_question_count: number; linked_question_count: number;

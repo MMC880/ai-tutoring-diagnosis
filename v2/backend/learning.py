@@ -18,6 +18,10 @@ class Scope(BaseModel):
     subject: str = Field(pattern='^(math|english|physics|chemistry)$')
 
 
+class LegacyInput(Scope):
+    assignment_id: str = Field(min_length=1, max_length=100)
+
+
 class LinkInput(Scope):
     assignment_id: str = Field(min_length=1, max_length=100)
     number: str = Field(pattern=r'^\d{1,3}(?:[.（(]\d{1,2}[）)]?)?$')
@@ -157,15 +161,23 @@ class LearningService:
             events = [e for e in self.events(db, 'LINK') if e['student_id'] == student_id and e['subject'] == subject]
             feedback = [e for e in self.events(db, 'FEEDBACK') if e['student_id'] == student_id and e['subject'] == subject]
             retests = [e for e in self.events(db, 'RETEST') if e['student_id'] == student_id and e['subject'] == subject]
+            current_feedback = self.latest(feedback, ['id'])
+            for record in current_feedback:
+                record['applicable'], record['applicability_notice'] = self.applicability(db, record)
+            legacy, legacy_unreadable = self.intake.legacy_records(db, student_id, subject)
         return {'assignments': assignments, 'links': self.latest(events, ['assignment_id', 'number']), 'link_history': events,
-                'feedback': self.latest(feedback, ['id']), 'retests': retests}
+                'feedback': current_feedback, 'retests': retests,
+                'legacy': [{'assignment_id': r['assignment_id'], 'assignment_date': r.get('assignment_date', '待补')} for r in legacy],
+                'legacy_unreadable': legacy_unreadable}
 
     def feedback(self, item: FeedbackInput):
         from uuid import uuid4
         with self.connect() as db:
             self.schema(db)
             db.execute('BEGIN IMMEDIATE')
-            self.assignment(db, item.assignment_id, item.student_id, item.subject)
+            assignment = self.assignment(db, item.assignment_id, item.student_id, item.subject)
+            if item.number not in assignment['questions']:
+                raise RequestConflict('本题尚未确认为当前错题，请先由老师核对错题清单')
             links = [l for l in self.latest(self.events(db, 'LINK'), ['assignment_id', 'number'])
                      if l['assignment_id'] == item.assignment_id and l['number'] == item.number and l['status'] == 'CONFIRMED']
             if not links:
@@ -193,6 +205,21 @@ class LearningService:
             raise KeyError('补练不存在')
         return found[-1]
 
+    def applicability(self, db, record):
+        assignment = self.assignment(db, record['assignment_id'], record['student_id'], record['subject'])
+        links = [l for l in self.latest(self.events(db, 'LINK'), ['assignment_id', 'number'])
+                 if l['assignment_id'] == record['assignment_id'] and l['number'] == record['number']]
+        if record['number'] not in assignment['questions']:
+            return False, '错题已撤销或尚未确认，仅保留历史，不能再发题或新增复测'
+        if not links or links[0]['status'] != 'CONFIRMED' or links[0]['revision'] != record['link_revision']:
+            return False, '知识点已更正，仅保留历史；请基于最新关联重新准备补练'
+        return True, ''
+
+    def require_applicable(self, db, record):
+        valid, message = self.applicability(db, record)
+        if not valid:
+            raise RequestConflict(message)
+
     def approve(self, item: ApprovalInput):
         with self.connect() as db:
             self.schema(db)
@@ -201,10 +228,7 @@ class LearningService:
             for field in ('student_id', 'subject', 'assignment_id', 'number'):
                 if record[field] != getattr(item, field):
                     raise KeyError('补练不属于当前学生作业')
-            links = [l for l in self.latest(self.events(db, 'LINK'), ['assignment_id', 'number'])
-                     if l['assignment_id'] == item.assignment_id and l['number'] == item.number]
-            if not links or links[0]['revision'] != record['link_revision']:
-                raise RequestConflict('知识点已更正，请基于最新关联重新准备补练')
+            self.require_applicable(db, record)
             payload = {k: v for k, v in record.items() if k not in {'revision', 'created_at'}}
             payload['status'] = 'APPROVED' if item.approved else 'REJECTED'
             return self.append(db, 'FEEDBACK', item.feedback_id, payload, item.expected_revision)
@@ -213,6 +237,7 @@ class LearningService:
         with self.connect() as db:
             self.schema(db)
             record = self.get_feedback(db, ident)
+            self.require_applicable(db, record)
         if record['status'] != 'APPROVED':
             raise RequestConflict('补练尚未由老师审核通过，不能生成学生版')
         selected = next((r for r in record['levels'] if r['level'] == level), None)
@@ -227,8 +252,6 @@ class LearningService:
             record = self.get_feedback(db, item.feedback_id)
             if any(record[f] != getattr(item, f) for f in ('student_id', 'subject', 'assignment_id', 'number')):
                 raise KeyError('复测归属不符')
-            if record['status'] != 'APPROVED':
-                raise RequestConflict('先审核补练，再记录其复测结果')
             payload = item.model_dump()
             ident = item.student_id + '/' + item.subject + '/' + item.request_id
             old = [e for e in self.events(db, 'RETEST') if e['id'] == ident]
@@ -236,6 +259,9 @@ class LearningService:
                 if any(old[-1][k] != v for k, v in payload.items()):
                     raise RequestConflict('复测请求编号已用于其他内容，不能覆盖')
                 return old[-1]
+            self.require_applicable(db, record)
+            if record['status'] != 'APPROVED':
+                raise RequestConflict('先审核补练，再记录其复测结果')
             payload.update(id=ident, tag=record['tag'], source='教师登记复测结果',
                            notice='本次答对不代表掌握；原错题与历史保留。独立性由老师登记，未自动核验。')
             return self.append(db, 'RETEST', ident, payload, 0)
@@ -289,6 +315,7 @@ class LearningService:
                     'linked_question_count': covered, 'patterns': sorted(patterns, key=lambda p: (-p['student_count'], -p['assignment_count'], p['tag']))}
         classroom = class_name.strip() or student.get('class_name', '')
         return {'student': student, 'subject': subject,
+                'class_choices': sorted({r['class_name'] for r in records if r['class_name']}),
                 'personal': summarize([r for r in records if r['student']['id'] == student_id]),
                 'classroom': dict(summarize([r for r in records if classroom and r['class_name'] == classroom]), class_name=classroom),
                 'notice': '只统计教师明确错题及最新确认的知识点关联；AI候选不计。重复不代表长期薄弱；班级人数是已有归档覆盖人数，不是全班实际人数。不计算批改准确率。'}

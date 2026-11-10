@@ -146,3 +146,80 @@ class LearningTests(unittest.TestCase):
             self.assertEqual(waiting['pending'][0]['flow_id'], staged['flow_id'])
             resumed = restarted.post('/api/intake/resolve', json={'flow_id': staged['flow_id'], 'confirm_create': True})
             self.assertEqual(resumed.json()['status'], 'SAVED')
+
+    def test_main_window_save_joins_learning_and_preserves_original(self):
+        raw = b'original unreadable photo retained'
+        response = self.client.post(f"/api/students/{self.student['id']}/subjects/math/assignments",
+            data={'teacher_note': '第5题错', 'assignment_date': '2026-11-09'},
+            files={'files': ('work.jpg', raw)})
+        self.assertEqual(response.status_code, 200, response.text)
+        ident = response.json()['assignment_id']
+        workspace = self.client.get('/api/learning/workspace', params={'student_id': self.student['id'], 'subject': 'math'}).json()
+        saved = next((a for a in workspace['assignments'] if a['assignment_id'] == ident), None)
+        self.assertIsNotNone(saved, 'main-window save must be available for learning')
+        self.assertEqual(saved['questions'], ['5'])
+        self.assertEqual(saved['assignment_date'], '2026-11-09')
+        self.assertEqual(self.link(saved, number='5', status='CONFIRMED').status_code, 200)
+        download = self.client.get(f"/api/learning/original/{ident}/{saved['files'][0]['sha256']}")
+        self.assertEqual(download.content, raw)
+        conflict = self.client.post(f"/api/students/{self.student['id']}/subjects/math/assignments",
+            data={'teacher_note': '英语第5题错'}, files={'files': ('different.jpg', b'other original')})
+        self.assertEqual(conflict.status_code, 422)
+
+    def test_legacy_continuation_is_explicit_idempotent_and_keeps_pending_provenance(self):
+        from backend.archive import ArchiveStore
+        legacy = ArchiveStore(self.root).save_task(self.student['id'], 'math', [('legacy.jpg', b'legacy original')], '第5题错')
+        before = {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob('*') if p.is_file() and p.suffix != '.sqlite3'}
+        scope = {'student_id': self.student['id'], 'subject': 'math'}
+        workspace = self.client.get('/api/learning/workspace', params=scope).json()
+        self.assertEqual(workspace.get('legacy', [{}])[0].get('assignment_id'), legacy['assignment_id'])
+        response = self.client.post('/api/learning/continue-legacy', json={**scope, 'assignment_id': legacy['assignment_id']})
+        self.assertEqual(response.status_code, 200, response.text)
+        saved = response.json()['receipt']
+        self.assertEqual(saved['questions'], [])
+        self.assertEqual(saved['candidate_questions'], ['5'])
+        self.assertIn('旧手工记录', saved['source'])
+        self.assertEqual(self.client.post('/api/learning/continue-legacy', json={**scope, 'assignment_id': legacy['assignment_id']}).json()['receipt'], saved)
+        for rel, raw in before.items():
+            self.assertEqual((self.root / rel).read_bytes(), raw, rel)
+        self.assertEqual(self.client.get(f"/api/learning/original/{saved['assignment_id']}/{saved['files'][0]['sha256']}").content, b'legacy original')
+        duplicate = self.client.post('/api/intake', data={'request_id': 'legacy-reupload', 'instruction': '数学归档', 'student_id': self.student['id']}, files={'files': ('other.jpg', b'legacy original')}).json()
+        self.assertEqual(duplicate['status'], 'DUPLICATE')
+        history = self.client.post('/api/intake/query', json={**scope, 'text': '历史错题'}).json()
+        self.assertEqual(history['legacy_count'], 0)
+        self.assertEqual(history['confirmed_count'], 1)  # Only the pre-existing first assignment.
+
+    def test_practice_becomes_history_after_link_revision_or_question_revocation(self):
+        self.link(status='CONFIRMED')
+        scope = {'student_id': self.student['id'], 'subject': 'math', 'assignment_id': self.a['assignment_id'], 'number': '3'}
+        feedback = self.client.post('/api/learning/feedback', json=scope).json()
+        self.client.post('/api/learning/approve', json={**scope, 'feedback_id': feedback['id'], 'expected_revision': 1, 'approved': True})
+        retest = {**scope, 'feedback_id': feedback['id'], 'level': 'A', 'answer': 'first', 'result': 'PENDING', 'independent': False, 'request_id': 'before-change'}
+        self.assertEqual(self.client.post('/api/learning/retest', json=retest).status_code, 200)
+        self.link(status='CONFIRMED', expected_revision=1, tag='一次函数')
+        self.assertEqual(self.client.get(f"/api/learning/practice/{feedback['id']}").status_code, 409)
+        self.assertEqual(self.client.post('/api/learning/retest', json={**retest, 'request_id': 'after-change'}).status_code, 409)
+        self.assertEqual(self.client.post('/api/learning/retest', json=retest).status_code, 200, 'exact retry preserves past receipt')
+        workspace = self.client.get('/api/learning/workspace', params={'student_id': self.student['id'], 'subject': 'math'}).json()
+        self.assertFalse(workspace['feedback'][0]['applicable'])
+        self.assertEqual(len(workspace['retests']), 1)
+        self.link(status='CONFIRMED', expected_revision=2, tag='二次函数顶点式')
+        newer = self.client.post('/api/learning/feedback', json=scope).json()
+        self.client.post('/api/learning/approve', json={**scope, 'feedback_id': newer['id'], 'expected_revision': 1, 'approved': True})
+        self.client.post('/api/learning/correct', json={**{k: v for k, v in scope.items() if k != 'number'}, 'assignment_date': '待补', 'questions': [], 'reason': '题号撤销', 'expected_revision': 0})
+        self.assertEqual(self.client.get(f"/api/learning/practice/{newer['id']}").status_code, 409)
+        self.assertEqual(self.client.post('/api/learning/feedback', json=scope).status_code, 409)
+
+    def test_class_choices_come_from_archived_subject_scopes_not_current_roster(self):
+        student = self.client.post('/api/students', json={'name': '无班级学生', 'confirm_new': True}).json()['student']
+        out = io.BytesIO()
+        Image.new('RGB', (20, 20), 'purple').save(out, 'PNG')
+        staged = self.client.post('/api/intake', data={'request_id': 'class-scope', 'student_id': student['id'], 'instruction': '九年级一班学生无班级学生数学归档，第3题错'}, files={'files': ('p.png', out.getvalue())}).json()
+        saved = self.client.post('/api/intake/resolve', json={'flow_id': staged['flow_id'], 'student_id': student['id']}).json()['receipt']
+        self.link(saved, status='CONFIRMED')
+        result = self.client.get('/api/learning/analysis', params={'student_id': student['id'], 'subject': 'math', 'class_name': '九年级一班'}).json()
+        self.assertIn('九年级一班', result.get('class_choices', []))
+        self.assertEqual(result['classroom']['assignment_count'], 1)
+        self.assertEqual(result['student']['class_name'], '')
+        english = self.client.get('/api/learning/analysis', params={'student_id': student['id'], 'subject': 'english'}).json()
+        self.assertNotIn('九年级一班', english.get('class_choices', []))

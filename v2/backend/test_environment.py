@@ -1,6 +1,8 @@
 import io
+import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -28,6 +30,37 @@ class EnvironmentTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('本地模拟', response.json()['text'])
         self.assertEqual(self.client.post('/api/chat', json={'text': ''}).status_code, 422)
+
+    def test_chinese_skill_with_windows_legacy_default_encoding(self):
+        original = Path.read_text
+
+        def legacy_read(path, encoding=None, errors=None):
+            return original(path, encoding=encoding or 'gbk', errors=errors)
+
+        with patch.object(Path, 'read_text', legacy_read):
+            response = self.client.get('/api/skill')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['display_name'], '数学错题复盘')
+        self.assertIn('单次错误', response.json()['instructions'])
+
+    def test_sqlite_probe_releases_database_handle(self):
+        original = sqlite3.connect
+        connections = []
+
+        def track(*args, **kwargs):
+            kwargs['check_same_thread'] = False
+            connection = original(*args, **kwargs)
+            connections.append(connection)
+            return connection
+
+        with patch('backend.main.sqlite3.connect', track):
+            self.assertEqual(self.client.post('/api/sqlite-probe').status_code, 200)
+        try:
+            with self.assertRaises(sqlite3.ProgrammingError):
+                connections[0].execute('SELECT 1')
+        finally:
+            for connection in connections:
+                connection.close()
 
     def test_images_validated_not_extension_only(self):
         data = io.BytesIO()

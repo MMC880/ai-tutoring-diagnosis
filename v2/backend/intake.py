@@ -157,18 +157,43 @@ class IntakeService:
             db.close()
 
     def submit(self, request_id, instruction, files, student_id=None, subject='math'):
+        meta = parse_instruction(instruction, subject)
+        return self._submit(request_id, instruction, files, student_id, subject, meta)
+
+    def save_selected(self, student_id, subject, files, note='', assignment_date='', request_id=None):
+        """The form's explicit student/subject selection is the authoritative scope."""
+        student = self.archive.student(student_id)
+        meta = parse_instruction((note or '') + '\n帮我归档', subject)
+        if meta['subject'] != subject or meta['name'] and meta['name'] not in {student['name'], student.get('base_name')} or (
+                meta['class_name'] and student.get('class_name') != meta['class_name']):
+            raise ValueError('老师说明与所选学生、班级或学科不符，请核对后再保存')
+        if assignment_date:
+            given = date.fromisoformat(assignment_date).isoformat()
+            if meta['assignment_date'] != '待补' and meta['assignment_date'] != given:
+                raise ValueError('老师说明与填写日期不一致，请核对')
+            meta['assignment_date'] = given
+        meta.update(name=student['name'], class_name=student.get('class_name', ''), teacher_instruction=note)
+        result = self._submit(request_id or uuid4().hex, note, files, student_id, subject, meta, explicit_student=True)
+        if result['status'] != 'SAVED':
+            raise RequestConflict(result['text'])
+        receipt = result['receipt']
+        return dict(receipt, markdown=self.markdown(receipt))
+
+    def _submit(self, request_id, instruction, files, student_id, subject, meta, explicit_student=False):
         if not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', request_id):
             raise ValueError('请求编号无效，请重新提交')
         if subject not in SUBJECTS:
             raise ValueError('请选择四个学科之一')
-        meta = parse_instruction(instruction, subject)
         if not 1 <= len(files) <= 12:
             raise ValueError('一次需添加1—12份同一学生同一作业的原件')
         items = [inspect_file(name, raw) for name, raw in files]
         if len({item['sha256'] for item in items}) != len(items):
             raise ValueError('这组文件中有内容相同的重复原件，请移除重复文件后再发')
-        fingerprint = hashlib.sha256(json.dumps([instruction, student_id, subject,
-            [(item['original_name'], item['sha256']) for item in items]], ensure_ascii=False).encode()).hexdigest()
+        fingerprint_parts = [instruction, student_id, subject,
+            [(item['original_name'], item['sha256']) for item in items]]
+        if explicit_student:
+            fingerprint_parts.append(meta['assignment_date'])
+        fingerprint = hashlib.sha256(json.dumps(fingerprint_parts, ensure_ascii=False).encode()).hexdigest()
         with self._connect() as db:
             db.execute('BEGIN IMMEDIATE')
             previous = db.execute('SELECT * FROM flows WHERE request_id=?', (request_id,)).fetchone()
@@ -190,7 +215,72 @@ class IntakeService:
                     json.dumps(meta, ensure_ascii=False), json.dumps(items, ensure_ascii=False), student_id,
                     'STAGED', None, utc_now()))
                 previous = db.execute('SELECT * FROM flows WHERE id=?', (ident,)).fetchone()
-            return self._advance(db, previous)
+            return self._advance(db, previous, chosen=student_id if explicit_student else None)
+
+    def legacy_records(self, db, student_id, subject):
+        known = {r[0] for r in db.execute('SELECT id FROM assignments WHERE student_id=? AND subject=?', (student_id, subject))}
+        result, errors = [], []
+        for path in sorted((self.archive.subject_dir(student_id, subject) / 'runs').glob('*.json')):
+            try:
+                old = json.loads(path.read_text(encoding='utf-8'))
+                if old['assignment_id'] not in known:
+                    result.append(old)
+            except (OSError, ValueError, KeyError, TypeError):
+                errors.append(path.name)
+        return result, errors
+
+    def continue_legacy(self, student_id, subject, assignment_id):
+        """Explicitly index a legacy record; original files and old MD stay untouched."""
+        if not re.fullmatch(r'A[0-9]{8}T[0-9]{6}-[a-f0-9]{12}', assignment_id):
+            raise ValueError('旧记录编号无效')
+        student = self.archive.student(student_id)
+        folder = self.archive.subject_dir(student_id, subject)
+        with self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            existing = db.execute('SELECT receipt FROM assignments WHERE id=? AND student_id=? AND subject=?',
+                                  (assignment_id, student_id, subject)).fetchone()
+            if existing:
+                return {'status': 'SAVED', 'receipt': json.loads(existing['receipt']), 'replayed': True}
+            old = json.loads((folder / 'runs' / (assignment_id + '.json')).read_text(encoding='utf-8'))
+            if old['assignment_id'] != assignment_id:
+                raise ValueError('旧记录编号与内容不符')
+            files = []
+            for item in old['files']:
+                path = (folder / 'originals' / assignment_id / item['name']).resolve()
+                if not path.is_relative_to((folder / 'originals' / assignment_id).resolve()):
+                    raise ValueError('旧原件路径超出本作业')
+                raw = path.read_bytes()
+                if hashlib.sha256(raw).hexdigest() != item['sha256']:
+                    raise OSError('旧原件哈希不一致，未续接')
+                inspected = inspect_file(item['original_name'], raw)
+                inspected.pop('thumbnail', None)
+                inspected['relative_path'] = 'objects/' + inspected['sha256']
+                write_original(self.archive.root / inspected['relative_path'], raw)
+                files.append(inspected)
+            if not files:
+                raise ValueError('旧记录没有原件，不能续接')
+            try:
+                actual_date = date.fromisoformat(old.get('assignment_date', '')).isoformat()
+            except (ValueError, TypeError):
+                actual_date = '待补'
+            markdown = folder / 'history' / (assignment_id + '.md')
+            raw_md = markdown.read_bytes()
+            candidates = list(dict.fromkeys(str(q) for q in old.get('questions', []) if re.fullmatch(r'\d{1,3}', str(q))))
+            receipt = {'id': assignment_id, 'assignment_id': assignment_id, 'student': student, 'subject': subject,
+                'subject_label': SUBJECTS[subject], 'class_name': '',
+                'assignment_date': actual_date, 'batch': assignment_id, 'uploaded_at': old['updated_at'],
+                'file_count': len(files), 'files': files, 'questions': [], 'candidate_questions': candidates,
+                'conflict_questions': [], 'source': '旧手工记录／待核对',
+                'pending': ['旧题号仅待核对；请老师通过更正确认完整错题清单', '旧记录未保存当时班级，不以当前名册推断'],
+                'teacher_instruction': old.get('teacher_note', ''),
+                'relative_path': markdown.relative_to(self.archive.root).as_posix(),
+                'sha256': hashlib.sha256(raw_md).hexdigest()}
+            db.execute('INSERT INTO assignments VALUES(?,?,?,?,?,?)', (assignment_id, 'legacy-' + assignment_id,
+                student_id, subject, actual_date, json.dumps(receipt, ensure_ascii=False)))
+            actual = json.loads(db.execute('SELECT receipt FROM assignments WHERE id=?', (assignment_id,)).fetchone()[0])
+            if actual != receipt:
+                raise OSError('旧记录续接回读不一致')
+            return {'status': 'SAVED', 'receipt': actual}
 
     def _matching(self, meta):
         students = self.archive.list_students()
@@ -353,6 +443,8 @@ class IntakeService:
             for path in sorted(runs.glob('*.json'), reverse=True):
                 try:
                     old = json.loads(path.read_text(encoding='utf-8'))
+                    if old['assignment_id'] in {r['assignment_id'] for r in all_records}:
+                        continue
                     old_date = old.get('assignment_date') or '待补'
                     try:
                         old_date = date.fromisoformat(old_date).isoformat()

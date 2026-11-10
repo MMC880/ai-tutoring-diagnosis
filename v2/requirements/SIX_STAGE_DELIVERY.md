@@ -31,6 +31,40 @@
 - 证据：v2/.qa-temp/learning/1794316028674/result.json、workbench.png（已看）。截图后补修正改判后仍残留旧补练表单，待最终回归。
 - 范围：单进程串行锁，非多进程/多机构事务保障。工作目录切换重启生效，旧资料原地保留。
 
-## 第6步
+## 第6步：Windows流程试用包已生成并实测
 
-进行中；制作生产资源/冻结后端/Windows便携包，尚未宣称通过。
+版本`2.0.0-preview.1`；目录`docs/delivery/v2-preview-20261110-r3/`。交付是整个便携文件夹的ZIP，不是单独EXE。复用Electron45.2.3和PyInstaller6.22.3，冻结同一套Python后端；生产构建不含CopilotKit实验入口。未安装或升级全局依赖。
+
+- 后端：`python -X utf8 -B -m unittest discover -s backend -p 'test_*.py'`，56/56通过，9.853秒；记录`v2/.qa-temp/six-stage-backend-final.log`。
+- 构建：`python -X utf8 -B scripts/package-windows.py build ../docs/delivery/v2-preview-20261110-r3`，TypeScript和Vite退出0，冻结成功；785个程序文件，422,791,679字节（未压缩）。主JS785.89kB有体积警告，未隐藏警告。
+- 打包学习链：`node scripts/verify-learning.mjs ../docs/delivery/v2-preview-20261110-r3/JinxueZhifu/JinxueZhifu.exe`，12/12通过；证据`v2/.qa-temp/learning/1794322161445/result.json`。真实窗口完成主表单保存→共同作业库→确认关联→补练审核→无答案题面实际下载→独立复测→更正→备份恢复→退出重开回读。选择目录结果由主进程测试替身提供，非真人点选。
+- 打包Agent链：`node scripts/verify-intake.mjs ../docs/delivery/v2-preview-20261110-r3/JinxueZhifu/JinxueZhifu.exe`，8/8通过；证据`v2/.qa-temp/intake/1794322237595/result.json`。真实窗口、本地HTTP/SQLite/Markdown和原件哈希；拖图使用DOM DataTransfer，非真人资源管理器拖拽。跨学生模型正文用本地拦截验证，无真实模型调用。
+- 已实际查看`workbench.png`和`02-receipt-compact.png`；390×600时输入区可见，无横向溢出。未据此认定教师易用性通过。
+- 首次扩展联合测试错误地假设目标作业总在列表第一条；新增主表单作业后该假设不成立。改为按assignment_id核对，再运行相同包通过，未修改业务记录来迎合测试。
+- 打包发现GBK默认编码令中文Skill500、SQLite探针连接未释放，分别新增回归复现后修复：显式UTF-8配官方元数据解析、显式关闭连接。r1/r2保留；r3为最终实测候选。
+
+打包后未修改程序文件；归档前按构建清单逐项核对，ZIP与原清单交叉校验及SHA-256见同目录`SHA256.txt`和`RELEASE_CHECK.json`。具体使用见`v2/WINDOWS_TRIAL_GUIDE.md`，测试范围见`v2/SIX_STAGE_TEST_REPORT.md`。
+
+## 全量审查与修复
+
+独立审查已完成：Critical 0、Important 4，Important全部进入一次修复流程，未安排重复审查。以下四项均先复现再修复，最终56项后端及20项打包联合检查通过：
+
+1. **两个保存入口断开**：主表单保存原先不进入SQLite学习库，旧手工作业重复又无法继续。后端`test_main_window_save_joins_learning_and_preserves_original`、`test_legacy_continuation_is_explicit_idempotent_and_keeps_pending_provenance`由失败转通过；实际EXE主表单保存后立即出现在学习面板。旧记录通过显式续接，原件与MD不改，旧题号待核对。
+2. **旧补练仍能使用**：知识点修订或题号撤回后，旧审核补练还能下载或新增复测。`test_practice_becomes_history_after_link_revision_or_question_revocation`先观察200而非预期409，再修复通过；EXE确认相关控件消失。精确重放既有复测仍返回原回执，历史保留。
+3. **多套补练共用答案**：Electron先观察第二套出现第一套答案，再拆为按补练ID独立表单。最终两套答案/档次/结果/请求ID隔离，刷新后另一套未提交草稿保留。
+4. **班级统计无选择入口**：学生名册班级为空但作业已记班级时无法查看该班。`test_class_choices_come_from_archived_subject_scopes_not_current_roster`先失败后通过；EXE实际选择归档班级并显示覆盖统计，不改历史班级。
+
+## Rulings与代价（最终交付决定）
+
+- Ruling 1：沿用已有隔离worktree，不创建项目；PowerShell中用此Markdown台账记录，不引入bash辅助工具。代价是账目依赖人工维护；本轮以Git和真实命令证据校对。
+- Ruling 2：恢复旧手工记录必须显式续接，旧题号候选、旧班级留空，保留旧原件/摘要。不推断旧记录已获教师确认。代价是旧作业需再核对，未确认前不进正式统计。
+- Ruling 3：旧补练在关联更正后只作历史；准确重试已提交复测可回读，新复测须当前有效关联。代价是老师更正后需重新准备补练，避免用旧依据训练。
+- Ruling 4：只有二次函数顶点式内置自编演示；其他内容当前由老师/Agent准备后用JSON录入。整卷OCR定位、完整课标库、模型生成直接入库均不在本次已实现范围。代价是教学覆盖和录入便利有限，不能作为通用出题能力出售。
+- Ruling 5：真实模型质量/教师省时/另一台干净电脑/真人拖拽与系统对话框仍未验证；自动化合成材料仅证明本机流程。代价是现场仍可能有兼容性或易用性问题，试用后再验收。
+- Ruling 6：最近30天历史查询的知识点补充明确标为全部历史，暂不强制统一时间窗；记录持久化但未做专门历史浏览器。代价是老师须留意两种时间范围，长档案浏览仍需改善。
+- Ruling 7：无法解码原件仍保留，页数标未知；不凭文件名推断页数。代价是教师需要原件核对，不能承诺坏图也能分析。
+- Ruling 8：单进程本机信任边界，串行锁+事务与清单；不宣称防护恶意本机进程、外部改库或人为重签清单。正常退出/重开已测，强制断电与所有权限故障未穷尽。代价是生产仍需扩大故障验证。
+- Ruling 9：整个便携目录分发，1.0不自动迁移，新目录不自动搬旧数据；旧app/packaging保持不变。代价是压缩包较大、老师须整包解压到可写目录。按既有本地Git约定保留当前分支及工作区，不推送或合并到旧版。
+- Final: minor (deferred)：分析副本JPEG有2MB限制，但Provider重编码PNG后没有最终图片字节上限；不声称最终外发载荷≤2MB。代价是可能增加真实调用带宽/费用或触发供应商体积限制，后续补最终载荷限制。当前未发真实资料。
+
+本轮六步工程范围已交付，下一步是老师流程试用与真实模型接入验证；不是自动批改准确率或正式商用验收。原始计划、资料和各阶段提交保留，不删除恢复证据。

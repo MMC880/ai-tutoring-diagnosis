@@ -12,6 +12,7 @@ import { _electron } from 'playwright-core';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, '.qa-temp', 'intake', String(Date.now()));
 const require = createRequire(import.meta.url);
+const packagedExe = process.argv[2];
 const env = { ...process.env, PYTHONUTF8: '1', PYTHONDONTWRITEBYTECODE: '1' };
 delete env.ELECTRON_RUN_AS_NODE;
 const children = [], logs = [], checks = [], errors = [];
@@ -54,12 +55,17 @@ try {
   const setup = launch(path.join(ROOT, '.venv/Scripts/python.exe'), ['-X', 'utf8', '-c',
     "import sys; from pathlib import Path; from PIL import Image; from pypdf import PdfWriter; p=Path(sys.argv[1]); [(Image.new('RGB',(80,60),c).save(p/f'p{i+1}.jpg')) for i,c in enumerate(['white','blue','red'])]; w=PdfWriter(); w.add_blank_page(width=300,height=400); w.add_blank_page(width=300,height=400); w.write(str(p/'paper.pdf')); (p/'broken.jpg').write_bytes(b'synthetic-unreadable-original')", OUT]);
   assert.equal(await new Promise(r => setup.once('exit', r)), 0);
+  if (packagedExe) {
+    desktop = await _electron.launch({ executablePath: path.resolve(packagedExe), args: [], env: { ...env, JINXUE_HOME: path.join(OUT, 'profile'), JINXUE_DATA_DIR: path.join(OUT, 'archive') }, timeout: 90000 });
+    await desktop.firstWindow();
+  } else {
   const backend = launch(path.join(ROOT, '.venv/Scripts/python.exe'), ['-X', 'utf8', '-B', '-c',
     "import sys; from pathlib import Path; import uvicorn; from backend.main import create_app; p=Path(sys.argv[1]); uvicorn.run(create_app(p/'probe.sqlite3',p/'archive'),host='127.0.0.1',port=8019,access_log=False)", OUT]);
   await ready('http://127.0.0.1:8019/health', backend);
   const vite = launch(process.execPath, [path.join(ROOT, 'node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', '5179', '--strictPort']);
   await ready('http://127.0.0.1:5179', vite);
   desktop = await _electron.launch({ executablePath: require('electron'), args: [ROOT], env, timeout: 45000 });
+  }
   const main = await desktop.firstWindow();
   const opening = desktop.waitForEvent('window');
   await main.getByRole('button', { name: '打开 AI Agent', exact: true }).click();

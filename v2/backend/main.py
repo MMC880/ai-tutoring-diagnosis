@@ -6,6 +6,8 @@ import sqlite3
 import warnings
 import os
 import secrets
+import sys
+from contextlib import closing
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
@@ -15,7 +17,8 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse, StreamingResponse
 from PIL import Image, UnidentifiedImageError
-from skills_ref import read_properties, validate
+from skills_ref.parser import parse_frontmatter
+from skills_ref.validator import validate_metadata
 
 from backend.archive import ArchiveStore, SUBJECTS
 from backend.provider import ProviderConfig, ProviderError, ProviderService
@@ -23,7 +26,7 @@ from backend.intake import IntakeService, RequestConflict, inspect_file, analysi
 from backend.learning import LearningService, LinkInput, FeedbackInput, ApprovalInput, RetestInput, CorrectionInput
 from backend.operations import Operations
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[1]))
 SKILL = ROOT / 'skills' / 'math-error-review'
 Image.MAX_IMAGE_PIXELS = 30_000_000
 
@@ -92,7 +95,7 @@ def create_app(db_path: Path | None = None, archive_root: Path | None = None, pr
     @app.post('/api/sqlite-probe')
     def sqlite_probe():
         database.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(database) as db:
+        with closing(sqlite3.connect(database)) as db, db:
             db.execute('CREATE TABLE IF NOT EXISTS environment_probe(id INTEGER PRIMARY KEY, value TEXT NOT NULL)')
             db.execute('INSERT INTO environment_probe(value) VALUES (?)', ('中文读写验证',))
             value = db.execute('SELECT value FROM environment_probe ORDER BY id DESC LIMIT 1').fetchone()[0]
@@ -100,13 +103,14 @@ def create_app(db_path: Path | None = None, archive_root: Path | None = None, pr
 
     @app.get('/api/skill')
     def read_skill():
-        errors = validate(SKILL)
+        # Frozen Windows Python can retain GBK despite PYTHONUTF8 in its environment.
+        # Keep the official parser/validation; make only file decoding explicit.
+        metadata, body = parse_frontmatter((SKILL / 'SKILL.md').read_text(encoding='utf-8'))
+        errors = validate_metadata(metadata, SKILL)
         if errors:
             raise HTTPException(500, detail=errors)
-        properties = read_properties(SKILL)
-        body = (SKILL / 'SKILL.md').read_text(encoding='utf-8').split('---', 2)[2].strip()
-        return {'name': properties.name, 'display_name': properties.metadata['display-name'],
-                'description': properties.description, 'instructions': body}
+        return {'name': metadata['name'], 'display_name': metadata['metadata']['display-name'],
+                'description': metadata['description'], 'instructions': body}
 
     @app.post('/api/chat')
     def chat(payload: ChatInput):
@@ -342,6 +346,7 @@ def create_app(db_path: Path | None = None, archive_root: Path | None = None, pr
         subject: str,
         teacher_note: str = Form(default=''),
         assignment_date: str = Form(default=''),
+        request_id: str = Form(default=''),
         files: list[UploadFile] = File(default=[]),
     ):
         if subject not in SUBJECTS:
@@ -352,10 +357,18 @@ def create_app(db_path: Path | None = None, archive_root: Path | None = None, pr
                 data = await upload.read(15 * 1024 * 1024 + 1)
                 await upload.close()
                 payloads.append((upload.filename or '未命名文件', data))
-            return archive.save_task(student_id, subject, payloads, teacher_note, assignment_date or None)
-        except (KeyError, ValueError) as error:
-            status = 404 if isinstance(error, KeyError) else 422
-            raise HTTPException(status, str(error)) from error
+            return intake.save_selected(student_id, subject, payloads, teacher_note, assignment_date, request_id or None)
+        except (KeyError, ValueError, OSError, sqlite3.Error) as error:
+            raise intake_error(error) from None
+
+    @app.post('/api/learning/continue-legacy')
+    def continue_legacy(payload: dict):
+        from backend.learning import LegacyInput
+        try:
+            item = LegacyInput.model_validate(payload)
+            return intake.continue_legacy(item.student_id, item.subject, item.assignment_id)
+        except (KeyError, ValueError, OSError, sqlite3.Error) as error:
+            raise intake_error(error) from None
 
     @app.post('/api/copilot-agent')
     async def copilot_agent(payload: dict):
