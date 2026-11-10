@@ -4,6 +4,7 @@ import { AssistantRuntimeProvider, useLocalRuntime, ThreadPrimitive, MessagePrim
   ComposerPrimitive, SimpleImageAttachmentAdapter, type ChatModelAdapter } from '@assistant-ui/react';
 import './style.css';
 import { useIntake } from './intake';
+import { LearningPanel } from './learning';
 
 const API = 'http://127.0.0.1:8019';
 const agentView = new URLSearchParams(location.search).get('floating') === '1';
@@ -286,6 +287,7 @@ function App() {
     <section className="status"><span>中文教学技能：<strong data-testid="skill">{subject === 'math' ? skill : '通用分析，学科专用技能待配置'}</strong></span><a href="/copilot.html">打开 CopilotKit 独立实验</a></section>
     {subjectButtons}
     {studentControls}
+    <LearningPanel student={student} subject={subject} />
     </>}
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadPrimitive.Root className="thread">

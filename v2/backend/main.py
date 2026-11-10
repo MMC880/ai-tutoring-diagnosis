@@ -18,6 +18,7 @@ from skills_ref import read_properties, validate
 from backend.archive import ArchiveStore, SUBJECTS
 from backend.provider import ProviderConfig, ProviderError, ProviderService
 from backend.intake import IntakeService, RequestConflict, inspect_file, analysis_image
+from backend.learning import LearningService, LinkInput
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / 'skills' / 'math-error-review'
@@ -67,6 +68,7 @@ def create_app(db_path: Path | None = None, archive_root: Path | None = None, pr
     database = db_path or ROOT / '.qa-temp' / 'environment.sqlite3'
     archive = ArchiveStore(archive_root or ROOT / '.local-data' / 'v2-archive')
     intake = IntakeService(archive)
+    learning = LearningService(intake)
     provider = ProviderService(archive, SKILL / 'SKILL.md', provider_transport)
 
     @app.exception_handler(RequestValidationError)
@@ -239,6 +241,31 @@ def create_app(db_path: Path | None = None, archive_root: Path | None = None, pr
     def query_history(payload: QueryInput):
         try:
             return intake.history(payload.text, payload.student_id, payload.subject)
+        except (ValueError, KeyError, OSError, sqlite3.Error) as error:
+            raise intake_error(error) from None
+
+    @app.get('/api/learning/workspace')
+    def learning_workspace(student_id: str, subject: str):
+        try:
+            return learning.workspace(student_id, subject)
+        except (ValueError, KeyError, OSError, sqlite3.Error) as error:
+            raise intake_error(error) from None
+
+    @app.post('/api/learning/link')
+    def link_knowledge(payload: LinkInput):
+        try:
+            return learning.link(payload)
+        except (ValueError, KeyError, OSError, sqlite3.Error) as error:
+            raise intake_error(error) from None
+
+    @app.get('/api/learning/original/{assignment_id}/{digest}')
+    def learning_original(assignment_id: str, digest: str):
+        from fastapi.responses import Response
+        try:
+            raw, item = learning.original(assignment_id, digest)
+            return Response(raw, media_type='application/octet-stream', headers={
+                'Content-Disposition': "attachment; filename=original" + ('.pdf' if item['original_name'].lower().endswith('.pdf') else '.jpg'),
+                'X-Content-Type-Options': 'nosniff'})
         except (ValueError, KeyError, OSError, sqlite3.Error) as error:
             raise intake_error(error) from None
 
