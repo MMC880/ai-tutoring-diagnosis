@@ -5,6 +5,11 @@ import { AssistantRuntimeProvider, useLocalRuntime, ThreadPrimitive, MessagePrim
 import './style.css';
 
 const API = 'http://127.0.0.1:8019';
+const agentView = new URLSearchParams(location.search).get('floating') === '1';
+function notifyProviderChange() {
+  const channel = new BroadcastChannel('jinxue-provider');
+  channel.postMessage('changed'); channel.close();
+}
 const SUBJECTS = [
   { id: 'math', label: '数学' },
   { id: 'english', label: '英语' },
@@ -37,6 +42,8 @@ function App() {
   const [notes, setNotes] = useState<{ id: string; markdown: string }[]>([]);
   const [receipts, setReceipts] = useState<{ id: string; relative_path: string; sha256: string }[]>([]);
   const [chatError, setChatError] = useState('');
+  const [openingAgent, setOpeningAgent] = useState(false);
+  const [contextReady, setContextReady] = useState(!agentView);
   const adapter: ChatModelAdapter = useMemo(() => ({
     async run({ messages, abortSignal }) {
       setChatError('');
@@ -83,7 +90,23 @@ function App() {
       if (!test.ok) throw new Error(data.detail || '连接失败');
       setConnection(`文字连接成功：${data.model}；图片和工具需单独验证`);
     } catch (error) { setConnection(error instanceof Error ? error.message : '连接失败'); }
-    finally { setConfigBusy(false); }
+    finally { setConfigBusy(false); notifyProviderChange(); }
+  }
+  async function showAgent() {
+    setOpeningAgent(true);
+    try {
+      if (window.jinxueDesktop) {
+        const result = await window.jinxueDesktop.openAgent({ subject, studentId: student?.id });
+        setNotice(result.opened ? 'AI Agent 已打开，沿用当前AI服务与学生学科；历史材料需主动导入' : '已回到打开的 AI Agent，保留该窗口原有对话和学生选择');
+      } else {
+        const params = new URLSearchParams({ floating: '1', subject });
+        if (student) params.set('student', student.id);
+        const popup = window.open(`/?${params}`, 'jinxue-agent');
+        if (!popup) throw new Error('浏览器阻止了聊天窗口，请允许本站弹出窗口后重试');
+        popup.focus();
+      }
+    } catch (error) { setNotice(error instanceof Error ? error.message : '无法打开 AI Agent'); }
+    finally { setOpeningAgent(false); }
   }
   useEffect(() => runtime.thread.composer.subscribe(() => {
     if (runtime.thread.composer.getState().attachments.length === 0) setPreviews([]);
@@ -94,10 +117,37 @@ function App() {
       .catch(() => setHealth('连接失败，请启动本地服务'));
   }, []);
   useEffect(() => {
-    fetch(`${API}/api/provider`).then(r => r.json()).then(data => {
+    function refreshProvider() { void fetch(`${API}/api/provider`).then(r => r.json()).then(data => {
       setProviderReady(data.key_loaded); setBaseUrl(data.base_url); setModel(data.model);
-      if (data.key_loaded) setConnection(data.connection === 'PASS' ? `文字连接成功：${data.model}` : '已配置，请测试连接');
-    }).catch(() => {});
+      setConnection(data.key_loaded ? (data.connection === 'PASS' ? `文字连接成功：${data.model}` : '已配置，请在AI服务中测试连接') : '未配置，当前为本地模拟');
+    }).catch(() => { if (agentView) setConnection('AI服务状态读取失败，请检查本地服务'); }); }
+    refreshProvider();
+    if (!agentView) return;
+    const channel = new BroadcastChannel('jinxue-provider');
+    channel.onmessage = refreshProvider;
+    window.addEventListener('focus', refreshProvider);
+    return () => { channel.close(); window.removeEventListener('focus', refreshProvider); };
+  }, []);
+  useEffect(() => {
+    if (!agentView) return;
+    let current = true;
+    const params = new URLSearchParams(location.search);
+    const context = window.jinxueDesktop ? window.jinxueDesktop.getAgentContext()
+      : Promise.resolve({ subject: params.get('subject') ?? 'math', studentId: params.get('student') });
+    void context.then(async selected => {
+      if (!current) return;
+      if (SUBJECTS.some(item => item.id === selected.subject)) setSubject(selected.subject);
+      if (!selected.studentId) return;
+      const response = await fetch(`${API}/api/students`);
+      if (!response.ok) throw new Error('学生选择读取失败，请在聊天窗口重新选择');
+      const data = await response.json();
+      if (!current) return;
+      const found = data.students?.find((item: { id: string }) => item.id === selected.studentId);
+      if (found) { setStudent(found); setStudentName(found.name); }
+      else setNotice('原先选中的学生已不存在，请展开“学生档案”重新选择');
+    }).catch(() => { if (current) setNotice('未带入学生选择，可展开“学生档案”重新选择'); })
+      .finally(() => { if (current) setContextReady(true); });
+    return () => { current = false; };
   }, []);
 
   async function addFiles(files: File[]) {
@@ -166,7 +216,30 @@ function App() {
     return () => { current = false; };
   }, [student, subject]);
 
-  return <main>
+  const studentControls = <section className="student-bar">
+    <label>学生称呼<input aria-label="学生称呼" disabled={busy} value={studentName} onChange={e => setStudentName(e.target.value)} placeholder="例如王小明" /></label>
+    <button type="button" disabled={busy} onClick={() => void findStudent(false)}>选择或查找</button>
+    {pendingName ? <button type="button" disabled={busy} onClick={() => void findStudent(true)}>新建 {pendingName}</button> : null}
+    <span data-testid="current-student">{student ? `当前：${student.name}` : '尚未选择学生'}</span>
+  </section>;
+  const archiveControls = <>
+    <label className="note">老师说明<textarea aria-label="老师说明" value={note} onChange={e => setNote(e.target.value)} placeholder="例如：今天作业，第3、5、8题错" /></label>
+    <div className="actions">
+      <button type="button" disabled={busy || configBusy} onClick={() => void saveAssignment()}>保存到该生该科档案</button>
+      <button type="button" disabled={busy || configBusy} data-testid="import-latest" onClick={() => { setImported(latest); setNotice(latest ? '已准备导入该生该科最新摘要，发送消息时会带上摘要' : '还没有可导入的摘要'); }}>导入最新摘要</button>
+    </div>
+    <pre className="summary" data-testid="latest-summary">{latest || '该生该科尚无摘要'}</pre>
+    <label><input type="checkbox" aria-label="允许保存AI待确认笔记" disabled={!student || busy} checked={allowSave} onChange={e => setAllowSave(e.target.checked)} />允许Agent按本次指令保存该生该科的AI待确认笔记（不改正式学情）</label>
+  </>;
+  const subjectButtons = <section className="subjects" role="group" aria-label="学科">
+    {SUBJECTS.map(item => <button key={item.id} aria-pressed={subject === item.id} disabled={busy} type="button" className={subject === item.id ? 'active' : ''} data-testid={`subject-${item.id}`} onClick={() => setSubject(item.id)}>{item.label}</button>)}
+  </section>;
+  return <main className={agentView ? 'agent-window' : undefined}>
+    {agentView ? <>
+      <header className="agent-header"><div><h1>AI Agent</h1><span className="muted">晋学智辅 · {student ? student.name : '自由对话'}</span></div><span className="badge" data-testid="health">{health}</span></header>
+      <div className="agent-model"><strong>{model}</strong><span data-testid="agent-connection" role="status">{connection}</span></div>
+      {subjectButtons}
+    </> : <>
     <header><div><span className="eyebrow">晋学智辅 2.0</span><h1>本地学习档案工作台</h1></div><span className="badge" data-testid="health">{health}</span></header>
     <p className="muted">{providerReady ? '已配置真实模型。发送会把本次文字、图片及主动导入的摘要交给所配接口；请先核对材料。' : '当前为本地模拟。填写AI服务后可测试真实模型。'} 原件与AI待确认笔记分开保存。</p>
     <details className="provider" open><summary>AI服务设置与连接测试</summary>
@@ -174,45 +247,42 @@ function App() {
       <label>模型ID<input aria-label="模型ID" disabled={busy || configBusy} value={model} onChange={e => { setModel(e.target.value); setConfigDirty(true); setConnection('模型草稿已修改，重新配置测试前暂停发送'); }} /></label>
       <label>API Key（仅后端进程内存，退出后清除）<input aria-label="API密钥" disabled={busy || configBusy} type="password" autoComplete="off" value={apiKey} onChange={e => { setApiKey(e.target.value); setConfigDirty(true); }} /></label>
       <button type="button" disabled={busy || configBusy || !apiKey} onClick={() => void configureProvider()}>配置并测试文字连接</button>
-      <button type="button" disabled={busy || configBusy} onClick={async () => { await fetch(`${API}/api/provider/clear`, { method: 'POST' }); setApiKey(''); setProviderReady(false); setConfigDirty(false); setConnection('密钥已清除，恢复本地模拟'); }}>清除本次密钥</button>
+      <button type="button" disabled={busy || configBusy} onClick={async () => { await fetch(`${API}/api/provider/clear`, { method: 'POST' }); setApiKey(''); setProviderReady(false); setConfigDirty(false); setConnection('密钥已清除，恢复本地模拟'); notifyProviderChange(); }}>清除本次密钥</button>
       <p data-testid="provider-status" role="status">{connection}</p>
+      <div className="agent-launch"><div><strong>AI Agent</strong><p className="muted">打开独立聊天窗口，添加图片并交代任务。</p></div><button type="button" disabled={openingAgent || configBusy || configDirty} onClick={() => void showAgent()}>打开 AI Agent</button></div>
     </details>
     <section className="status"><span>中文教学技能：<strong data-testid="skill">{subject === 'math' ? skill : '通用分析，学科专用技能待配置'}</strong></span><a href="/copilot.html">打开 CopilotKit 独立实验</a></section>
-    <section className="subjects" role="group" aria-label="学科">
-      {SUBJECTS.map(item => <button key={item.id} disabled={busy} type="button" className={subject === item.id ? 'active' : ''} data-testid={`subject-${item.id}`} onClick={() => setSubject(item.id)}>{item.label}</button>)}
-    </section>
-    <section className="student-bar">
-      <label>学生称呼<input aria-label="学生称呼" value={studentName} onChange={e => setStudentName(e.target.value)} placeholder="例如王小明" /></label>
-      <button type="button" disabled={busy} onClick={() => void findStudent(false)}>选择或查找</button>
-      {pendingName ? <button type="button" disabled={busy} onClick={() => void findStudent(true)}>新建 {pendingName}</button> : null}
-      <span data-testid="current-student">{student ? `当前：${student.name}` : '尚未选择学生'}</span>
-    </section>
+    {subjectButtons}
+    {studentControls}
+    </>}
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadPrimitive.Root className="thread">
-        <ThreadPrimitive.Viewport className="messages"><ThreadPrimitive.Messages components={{ UserMessage: Message, AssistantMessage: Message }} /></ThreadPrimitive.Viewport>
+        {agentView ? <details className="agent-archive"><summary>学生档案{student ? ` · ${student.name}` : '（需要保存时再选择）'}</summary>{studentControls}{archiveControls}
+          <details><summary>本地AI待确认笔记（{notes.length}）</summary>{notes.map(item => <section key={item.id}>
+            <button type="button" data-testid="import-agent-note" disabled={busy || configBusy} onClick={() => { setImported(item.markdown); setNotice('已准备导入这份AI待确认笔记，发送时携带；不代表老师已确认'); }}>导入这份笔记继续讨论</button><pre className="summary" data-testid="agent-note">{item.markdown}</pre>
+          </section>)}</details>
+        </details> : null}
+        <ThreadPrimitive.Viewport className="messages">
+          {agentView ? <ThreadPrimitive.Empty><div className="agent-empty"><h2>把作业发过来，说说要做什么</h2><p>可先添加图片，再输入任务。需要引用历史或保存结果时，展开“学生档案”。</p></div></ThreadPrimitive.Empty> : null}
+          <ThreadPrimitive.Messages components={{ UserMessage: Message, AssistantMessage: Message }} />
+        </ThreadPrimitive.Viewport>
         <section className="drop" data-testid="dropzone" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void addFiles(Array.from(e.dataTransfer.files)); }}>
-          <label>拖入该生该科作业原件，或选择图片（对话预览最多3张）<input aria-label="添加测试图片" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" multiple onChange={e => { void addFiles(Array.from(e.target.files ?? [])); e.target.value = ''; }} /></label>
+          <label>{agentView ? '添加图片或PDF，也可拖到这里' : '拖入该生该科作业原件，或选择图片（对话预览最多3张）'}<input aria-label="添加测试图片" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" multiple onChange={e => { void addFiles(Array.from(e.target.files ?? [])); e.target.value = ''; }} /></label>
           <div className="previews">{previews.map((p, i) => <figure key={i}><img alt={`测试图片：${p.name}`} src={p.src} /><figcaption>{p.name}</figcaption></figure>)}</div>
           <p role="status">{notice}</p>
         </section>
-        <label className="note">老师说明<textarea aria-label="老师说明" value={note} onChange={e => setNote(e.target.value)} placeholder="例如：今天作业，第3、5、8题错" /></label>
-        <div className="actions">
-          <button type="button" disabled={busy || configBusy} onClick={() => void saveAssignment()}>保存到该生该科档案</button>
-          <button type="button" disabled={busy || configBusy} data-testid="import-latest" onClick={() => { setImported(latest); setNotice(latest ? '已准备导入该生该科最新摘要，发送消息时会带上摘要' : '还没有可导入的摘要'); }}>导入最新摘要</button>
-        </div>
-        <pre className="summary" data-testid="latest-summary">{latest || '该生该科尚无摘要'}</pre>
-        <label><input type="checkbox" aria-label="允许保存AI待确认笔记" disabled={!student || busy} checked={allowSave} onChange={e => setAllowSave(e.target.checked)} />允许Agent按本次指令保存该生该科的AI待确认笔记（不改正式学情）</label>
-        <p className="muted">本次发送：当前消息、最多3张所选图片、当前对话最近10条文字{imported ? '、主动导入的摘要' : ''}。发送前请自行遮去姓名、学校等身份信息；自动替换当前称呼不能保证全部去标识。PDF仅保存在本地，本轮不会发给模型。</p>
-        <ComposerPrimitive.Root className="composer"><ComposerPrimitive.Input aria-label="消息" placeholder="例如：请分析这道题，标出待核实之处" /><ComposerPrimitive.Send disabled={configBusy || configDirty}>发送</ComposerPrimitive.Send></ComposerPrimitive.Root>
+        {!agentView ? archiveControls : null}
+        {agentView ? <p className="agent-scope muted">{providerReady ? '发送到已配置模型' : '本地模拟，未调用模型'}：本次消息、最近10条文字、所选图片{imported ? '及已导入摘要' : ''}。请先遮去身份信息。图片最多3张，每张2MB；PDF仅存本地。</p> : <p className="muted">本次发送：当前消息、最多3张所选图片、当前对话最近10条文字{imported ? '、主动导入的摘要' : ''}。发送前请自行遮去姓名、学校等身份信息；自动替换当前称呼不能保证全部去标识。PDF仅保存在本地，本轮不会发给模型。</p>}
+        <ComposerPrimitive.Root className="composer"><ComposerPrimitive.Input aria-label="消息" disabled={!contextReady} placeholder="例如：请分析这道题，标出待核实之处" /><ComposerPrimitive.Send disabled={!contextReady || configBusy || configDirty}>发送</ComposerPrimitive.Send></ComposerPrimitive.Root>
         {chatError ? <p role="alert">{chatError}</p> : null}
         {receipts.map(item => <p className="receipt" data-testid="agent-receipt" key={item.id}>已写入并回读待确认笔记：{item.relative_path} · SHA-256 {item.sha256}</p>)}
-        <details><summary>本地AI待确认笔记（{notes.length}）</summary>{notes.map(item => <section key={item.id}>
+        {!agentView ? <details><summary>本地AI待确认笔记（{notes.length}）</summary>{notes.map(item => <section key={item.id}>
           <button type="button" data-testid="import-agent-note" disabled={busy || configBusy} onClick={() => { setImported(item.markdown); setNotice('已准备导入这份AI待确认笔记，发送时携带；不代表老师已确认'); }}>导入这份笔记继续讨论</button>
           <pre className="summary" data-testid="agent-note">{item.markdown}</pre>
-        </section>)}</details>
+        </section>)}</details> : null}
       </ThreadPrimitive.Root>
     </AssistantRuntimeProvider>
-    <p className="muted">悬浮窗口可从桌面软件的“窗口”菜单打开。刷新页面会清空本次对话；已保存的摘要仍在本地档案。</p>
+    <p className="muted agent-footnote">{agentView ? '模型在主窗口的AI服务中设置。关闭或刷新会清空未保存对话。' : 'AI服务内点击“打开 AI Agent”即可聊天。刷新页面会清空本次对话；已保存的摘要仍在本地档案。'}</p>
   </main>;
 }
 createRoot(document.getElementById('root')!).render(<App />);
