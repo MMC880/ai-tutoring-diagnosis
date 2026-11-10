@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from backend.archive import SUBJECTS, utc_now
 from backend.intake import RequestConflict
+from backend.feedback import vertex_feedback
 
 
 class Scope(BaseModel):
@@ -25,6 +26,32 @@ class LinkInput(Scope):
     quote: str = Field(min_length=1, max_length=2000)
     status: str = Field(pattern='^(CANDIDATE|CONFIRMED)$')
     expected_revision: int = Field(ge=0)
+
+
+class FeedbackInput(Scope):
+    assignment_id: str = Field(min_length=1, max_length=100)
+    number: str = Field(min_length=1, max_length=20)
+    explanation: str = Field(default='', max_length=12000)
+    levels: list[dict[str, str]] = Field(default_factory=list, max_length=3)
+
+
+class ApprovalInput(Scope):
+    assignment_id: str
+    number: str
+    feedback_id: str = Field(max_length=100)
+    expected_revision: int = Field(ge=1)
+    approved: bool
+
+
+class RetestInput(Scope):
+    assignment_id: str
+    number: str
+    feedback_id: str = Field(max_length=100)
+    level: str = Field(pattern='^[ABC]$')
+    answer: str = Field(min_length=1, max_length=8000)
+    result: str = Field(pattern='^(CORRECT|INCORRECT|PARTIAL|PENDING)$')
+    independent: bool
+    request_id: str = Field(pattern='^[A-Za-z0-9_-]{1,100}$')
 
 
 class LearningService:
@@ -102,7 +129,90 @@ class LearningService:
             assignments = [json.loads(r['receipt']) for r in db.execute(
                 'SELECT receipt FROM assignments WHERE student_id=? AND subject=? ORDER BY rowid DESC', (student_id, subject))]
             events = [e for e in self.events(db, 'LINK') if e['student_id'] == student_id and e['subject'] == subject]
-        return {'assignments': assignments, 'links': self.latest(events, ['assignment_id', 'number']), 'link_history': events}
+            feedback = [e for e in self.events(db, 'FEEDBACK') if e['student_id'] == student_id and e['subject'] == subject]
+            retests = [e for e in self.events(db, 'RETEST') if e['student_id'] == student_id and e['subject'] == subject]
+        return {'assignments': assignments, 'links': self.latest(events, ['assignment_id', 'number']), 'link_history': events,
+                'feedback': self.latest(feedback, ['id']), 'retests': retests}
+
+    def feedback(self, item: FeedbackInput):
+        from uuid import uuid4
+        with self.connect() as db:
+            self.schema(db)
+            db.execute('BEGIN IMMEDIATE')
+            self.assignment(db, item.assignment_id, item.student_id, item.subject)
+            links = [l for l in self.latest(self.events(db, 'LINK'), ['assignment_id', 'number'])
+                     if l['assignment_id'] == item.assignment_id and l['number'] == item.number and l['status'] == 'CONFIRMED']
+            if not links:
+                raise ValueError('先确认本题知识点再准备补练')
+            if item.explanation or item.levels:
+                if not item.explanation.strip() or len(item.levels) != 3:
+                    raise ValueError('请提供讲解和A/B/C三档题目及完整解答')
+                for level, row in zip('ABC', item.levels):
+                    if set(row) != {'level', 'title', 'question', 'solution'} or row['level'] != level or any(not v.strip() or len(v) > 12000 for v in row.values()):
+                        raise ValueError('每档必须包含level/title/question/solution，按A/B/C排列，内容不能为空')
+                content = {'origin': '老师或Agent提供的待审内容，未做自动数学正确性认证', 'explanation': item.explanation,
+                           'levels': item.levels, 'review_advice': '老师决定选档和复测时间；一次答对不代表掌握。'}
+            elif item.subject == 'math' and re.search('顶点|二次函数', links[0]['tag']):
+                content = vertex_feedback()
+            else:
+                raise ValueError('这个知识点暂无内置演示；请让Agent或老师准备讲解和三档完整题解后录入，不会凭空生成通用题')
+            ident = 'F-' + uuid4().hex
+            payload = dict(item.model_dump(exclude={'explanation', 'levels'}), **content, id=ident, tag=links[0]['tag'],
+                           link_revision=links[0]['revision'], status='WAITING_TEACHER')
+            return self.append(db, 'FEEDBACK', ident, payload, 0)
+
+    def get_feedback(self, db, ident):
+        found = [e for e in self.events(db, 'FEEDBACK') if e['id'] == ident]
+        if not found:
+            raise KeyError('补练不存在')
+        return found[-1]
+
+    def approve(self, item: ApprovalInput):
+        with self.connect() as db:
+            self.schema(db)
+            db.execute('BEGIN IMMEDIATE')
+            record = self.get_feedback(db, item.feedback_id)
+            for field in ('student_id', 'subject', 'assignment_id', 'number'):
+                if record[field] != getattr(item, field):
+                    raise KeyError('补练不属于当前学生作业')
+            links = [l for l in self.latest(self.events(db, 'LINK'), ['assignment_id', 'number'])
+                     if l['assignment_id'] == item.assignment_id and l['number'] == item.number]
+            if not links or links[0]['revision'] != record['link_revision']:
+                raise RequestConflict('知识点已更正，请基于最新关联重新准备补练')
+            payload = {k: v for k, v in record.items() if k not in {'revision', 'created_at'}}
+            payload['status'] = 'APPROVED' if item.approved else 'REJECTED'
+            return self.append(db, 'FEEDBACK', item.feedback_id, payload, item.expected_revision)
+
+    def practice(self, ident, level):
+        with self.connect() as db:
+            self.schema(db)
+            record = self.get_feedback(db, ident)
+        if record['status'] != 'APPROVED':
+            raise RequestConflict('补练尚未由老师审核通过，不能生成学生版')
+        selected = next((r for r in record['levels'] if r['level'] == level), None)
+        if not selected:
+            raise ValueError('请选择A/B/C一档')
+        return f"# {selected['title']}\n\n{selected['question']}\n\n请独立完成并保留过程。\n"
+
+    def retest(self, item: RetestInput):
+        with self.connect() as db:
+            self.schema(db)
+            db.execute('BEGIN IMMEDIATE')
+            record = self.get_feedback(db, item.feedback_id)
+            if any(record[f] != getattr(item, f) for f in ('student_id', 'subject', 'assignment_id', 'number')):
+                raise KeyError('复测归属不符')
+            if record['status'] != 'APPROVED':
+                raise RequestConflict('先审核补练，再记录其复测结果')
+            payload = item.model_dump()
+            ident = item.student_id + '/' + item.subject + '/' + item.request_id
+            old = [e for e in self.events(db, 'RETEST') if e['id'] == ident]
+            if old:
+                if any(old[-1][k] != v for k, v in payload.items()):
+                    raise RequestConflict('复测请求编号已用于其他内容，不能覆盖')
+                return old[-1]
+            payload.update(id=ident, tag=record['tag'], source='教师登记复测结果',
+                           notice='本次答对不代表掌握；原错题与历史保留。独立性由老师登记，未自动核验。')
+            return self.append(db, 'RETEST', ident, payload, 0)
 
     def original(self, assignment_id, digest):
         with self.connect() as db:

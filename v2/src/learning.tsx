@@ -15,6 +15,8 @@ export async function api(url: string, body?: unknown) {
 export function LearningPanel({ student, subject }: { student: Student | null; subject: string }) {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [links, setLinks] = useState<Link[]>([]);
+  const [feedback, setFeedback] = useState<Feedback[]>([]);
+  const [retests, setRetests] = useState<{ id: string; tag: string; result: string; answer: string; notice: string }[]>([]);
   const [assignmentId, setAssignment] = useState('');
   const [number, setNumber] = useState('');
   const [tag, setTag] = useState('');
@@ -29,10 +31,10 @@ export function LearningPanel({ student, subject }: { student: Student | null; s
   const link = links.find(l => l.assignment_id === assignmentId && l.number === number);
   useEffect(() => {
     let current = true;
-    setAssignments([]); setLinks([]); setAnalysis(null);
+    setAssignments([]); setLinks([]); setFeedback([]); setRetests([]); setAnalysis(null);
     if (!student) return;
     void api(`/api/learning/workspace?student_id=${encodeURIComponent(student.id)}&subject=${subject}`)
-      .then(data => { if (current) { setAssignments(data.assignments); setLinks(data.links); } })
+      .then(data => { if (current) { setAssignments(data.assignments); setLinks(data.links); setFeedback(data.feedback); setRetests(data.retests); } })
       .catch(error => { if (current) setNotice(error.message); });
     void api(`/api/learning/analysis?student_id=${encodeURIComponent(student.id)}&subject=${subject}`)
       .then(data => { if (current) setAnalysis(data); }).catch(error => { if (current) setNotice(error.message); });
@@ -69,11 +71,41 @@ export function LearningPanel({ student, subject }: { student: Student | null; s
           <label>原图位置或老师依据<textarea aria-label="关联依据" placeholder="例如：第1页下半部第3题，学生写了…；未核实的错因不要当事实" value={quote} maxLength={2000} onChange={e => setQuote(e.target.value)} /></label>
           <div className="actions">{link?.status !== 'CONFIRMED' ? <button disabled={busy || !tag.trim() || !quote.trim()} onClick={() => void save('CANDIDATE')}>保存候选</button> : null}<button disabled={busy || !tag.trim() || !quote.trim()} onClick={() => void save('CONFIRMED')}>老师确认知识点</button></div>
           <p>{link ? `当前：${link.status === 'CONFIRMED' ? '教师确认' : '候选待确认'} · 修订${link.revision}` : '尚未关联'}。单次错误不代表长期薄弱。</p>
+          {student && link?.status === 'CONFIRMED' ? <FeedbackPanel key={`${student.id}/${subject}/${assignmentId}/${number}/${link.revision}`} scope={{ student_id: student.id, subject, assignment_id: assignmentId, number }} records={feedback.filter(f => f.assignment_id === assignmentId && f.number === number)} updated={() => refresh(g => g + 1)} /> : null}
         </> : null}
       </> : <p>没有记录时，先在 AI Agent 中拖入材料并说“帮我归档”。</p>}
     </>}
     <p role="status">{notice}</p>
     {analysis ? <div data-testid="learning-analysis"><StatsView title="这个学生的复习线索" data={analysis.personal} /><StatsView title={`班级共性 · ${analysis.classroom.class_name || '班级待补'}`} data={analysis.classroom} /><p className="muted">{analysis.notice}</p></div> : null}
+    {retests.length ? <details><summary>复测记录（{retests.length}）</summary>{retests.map(r => <p key={r.id}>{r.tag} · {r.result} · 作答：{r.answer}。{r.notice}</p>)}</details> : null}
+  </section>;
+}
+
+type Feedback = { id: string; assignment_id: string; number: string; status: string; revision: number; tag: string; origin: string; explanation: string; review_advice: string; levels: { level: string; title: string; question: string; solution: string }[] };
+function FeedbackPanel({ scope, records, updated }: { scope: { student_id: string; subject: string; assignment_id: string; number: string }; records: Feedback[]; updated: () => void }) {
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [answer, setAnswer] = useState('');
+  const [result, setResult] = useState('PENDING');
+  const [level, setLevel] = useState('A');
+  const [independent, setIndependent] = useState(false);
+  const [manual, setManual] = useState('');
+  async function action(url: string, data: unknown) {
+    setBusy(true); setNotice('正在保存…');
+    try { await api(url, data); setNotice('已保存并回读，原历史保留'); updated(); }
+    catch (error) { setNotice(error instanceof Error ? error.message : '保存失败'); }
+    finally { setBusy(false); }
+  }
+  return <section data-testid="feedback-panel"><h3>讲解、补练与复测</h3>
+    <button disabled={busy} onClick={() => void action('/api/learning/feedback', scope)}>准备三级补练草稿</button>
+    <details><summary>录入老师或Agent准备的三档内容</summary><p className="muted">其他知识点可用。粘贴JSON：explanation和levels，levels含A/B/C各档level、title、question、solution。保存后仍须审核。</p><textarea aria-label="手工补练内容" value={manual} onChange={e => setManual(e.target.value)} /><button disabled={busy || !manual.trim()} onClick={() => { try { const data = JSON.parse(manual); void action('/api/learning/feedback', { ...scope, explanation: data.explanation, levels: data.levels }); } catch { setNotice('内容不是有效JSON，请核对格式'); } }}>保存待审补练</button></details>
+    {records.map(f => <details key={f.id} open={records.length === 1}><summary>{f.tag} · {f.status === 'APPROVED' ? '教师已审核' : f.status === 'REJECTED' ? '已退回' : '待教师审核'}</summary>
+      <p>{f.origin}</p><p>{f.explanation}</p>{f.levels.map(l => <section key={l.level}><strong>{l.level}档 · {l.title}</strong><p>{l.question}</p><details><summary>教师完整解答</summary><p>{l.solution}</p></details></section>)}<p>{f.review_advice}</p>
+      {f.status === 'WAITING_TEACHER' ? <div className="actions"><button disabled={busy} onClick={() => void action('/api/learning/approve', { ...scope, feedback_id: f.id, expected_revision: f.revision, approved: true })}>老师审核通过</button><button disabled={busy} onClick={() => void action('/api/learning/approve', { ...scope, feedback_id: f.id, expected_revision: f.revision, approved: false })}>退回草稿</button></div> : null}
+      {f.status === 'APPROVED' ? <><label>本次练习档次<select aria-label="复测档次" value={level} onChange={e => setLevel(e.target.value)}><option>A</option><option>B</option><option>C</option></select></label><a href={`${API}/api/learning/practice/${f.id}?level=${level}`}>打开学生单档题面（无解答）</a>
+        <label>复测原答<textarea aria-label="复测原答" value={answer} onChange={e => setAnswer(e.target.value)} /></label><label>老师复核结果<select aria-label="复测结果" value={result} onChange={e => setResult(e.target.value)}><option value="PENDING">待确认</option><option value="CORRECT">本次答对</option><option value="PARTIAL">部分正确</option><option value="INCORRECT">本次答错</option></select></label><label><input type="checkbox" checked={independent} onChange={e => setIndependent(e.target.checked)} />老师确认本次独立完成</label>
+        <button disabled={busy || !answer.trim()} onClick={() => void action('/api/learning/retest', { ...scope, feedback_id: f.id, level, answer, result, independent, request_id: crypto.randomUUID() })}>登记复测并保留历史</button></> : null}
+    </details>)}<p role="status">{notice}</p>
   </section>;
 }
 

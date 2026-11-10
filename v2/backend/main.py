@@ -18,7 +18,7 @@ from skills_ref import read_properties, validate
 from backend.archive import ArchiveStore, SUBJECTS
 from backend.provider import ProviderConfig, ProviderError, ProviderService
 from backend.intake import IntakeService, RequestConflict, inspect_file, analysis_image
-from backend.learning import LearningService, LinkInput
+from backend.learning import LearningService, LinkInput, FeedbackInput, ApprovalInput, RetestInput
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / 'skills' / 'math-error-review'
@@ -262,6 +262,35 @@ def create_app(db_path: Path | None = None, archive_root: Path | None = None, pr
     def learning_analysis(student_id: str, subject: str, class_name: str = ''):
         try:
             return learning.analysis(student_id, subject, class_name)
+        except (ValueError, KeyError, OSError, sqlite3.Error) as error:
+            raise intake_error(error) from None
+
+    @app.post('/api/learning/feedback')
+    def prepare_feedback(payload: FeedbackInput):
+        try:
+            return learning.feedback(payload)
+        except (ValueError, KeyError, OSError, sqlite3.Error) as error:
+            raise intake_error(error) from None
+
+    @app.post('/api/learning/approve')
+    def approve_feedback(payload: ApprovalInput):
+        try:
+            return learning.approve(payload)
+        except (ValueError, KeyError, OSError, sqlite3.Error) as error:
+            raise intake_error(error) from None
+
+    @app.post('/api/learning/retest')
+    def register_retest(payload: RetestInput):
+        try:
+            return learning.retest(payload)
+        except (ValueError, KeyError, OSError, sqlite3.Error) as error:
+            raise intake_error(error) from None
+
+    @app.get('/api/learning/practice/{ident}')
+    def student_practice(ident: str, level: str = 'A'):
+        from fastapi.responses import PlainTextResponse
+        try:
+            return PlainTextResponse(learning.practice(ident, level))
         except (ValueError, KeyError, OSError, sqlite3.Error) as error:
             raise intake_error(error) from None
 
