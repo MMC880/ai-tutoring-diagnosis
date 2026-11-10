@@ -90,12 +90,13 @@ export function useIntake(student: Student | null, subject: string, selected: (s
 
   async function analysisImages() {
     const images = materials.filter(m => !m.file.name.toLowerCase().endsWith('.pdf'));
-    if (images.length > 3 || images.some(m => m.file.size > 2 * 1024 * 1024)) {
-      throw Error('材料可正常归档。若要发给模型分析，请只保留最多3张、每张2MB以内的图片');
+    if (images.length > 3) {
+      throw Error('材料可正常归档。一次分析最多3张图片，请移除多余图片后发送；未调用模型');
     }
-    return Promise.all(images.map(m => new Promise<string>((resolve, reject) => {
-      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(m.file);
-    })));
+    return Promise.all(images.map(async m => {
+      const form = new FormData(); form.append('file', m.file, m.file.name);
+      return (await jsonResponse(await fetch(`${API}/api/intake/analysis-image`, { method: 'POST', body: form }))).image as string;
+    }));
   }
   function clear() { setMaterials([]); setPending(null); setReceipt(''); setNotice('已清除界面材料；已暂存原件保留，未新增正式归档'); request.current = null; }
   function reset() { setMaterials([]); setPending(null); setReceipt(''); setNotice(''); request.current = null; localTexts.current.clear(); }

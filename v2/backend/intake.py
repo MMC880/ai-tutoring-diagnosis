@@ -16,7 +16,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 from datetime import datetime
 
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 from pypdf import PdfReader
 
 from backend.archive import SUBJECTS, utc_now
@@ -25,6 +25,35 @@ from backend.instruction import parse_instruction, instruction_context
 
 class RequestConflict(ValueError):
     pass
+
+
+def analysis_image(raw: bytes):
+    """A lossy, metadata-free model copy; never modifies the original blob."""
+    try:
+        if not raw or len(raw) > 15 * 1024 * 1024:
+            raise ValueError()
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(raw)) as image:
+                if image.format not in {'PNG', 'JPEG', 'WEBP', 'MPO'} or image.width * image.height > 30_000_000:
+                    raise ValueError()
+                image.seek(0)
+                image.load()
+                oriented = ImageOps.exif_transpose(image)
+                clean = Image.new('RGB', oriented.size, 'white')
+                clean.paste(oriented.convert('RGB'))
+                clean.thumbnail((2000, 2000))
+                while True:
+                    out = io.BytesIO()
+                    clean.save(out, 'JPEG', quality=88)
+                    if out.tell() <= 2 * 1024 * 1024:
+                        break
+                    clean.thumbnail((int(clean.width * .8), int(clean.height * .8)))
+        return {'image': 'data:image/jpeg;base64,' + base64.b64encode(out.getvalue()).decode('ascii'),
+                'bytes': out.tell(), 'width': clean.width, 'height': clean.height,
+                'warning': '分析副本最长边2000像素，已去元数据；细小字迹可能需另选局部清晰图。原件不变。'}
+    except (ValueError, OSError, Image.DecompressionBombError, Image.DecompressionBombWarning):
+        raise ValueError('图片不能生成分析副本，仍可归档原件；请选择可读的主图') from None
 
 
 def write_original(path: Path, raw: bytes):

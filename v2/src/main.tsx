@@ -43,6 +43,7 @@ function App() {
   const [notes, setNotes] = useState<{ id: string; markdown: string }[]>([]);
   const [receipts, setReceipts] = useState<{ id: string; relative_path: string; sha256: string }[]>([]);
   const [chatError, setChatError] = useState('');
+  const [taskStatus, setTaskStatus] = useState('就绪：添加作业后交代任务');
   const [openingAgent, setOpeningAgent] = useState(false);
   const [contextReady, setContextReady] = useState(!agentView);
   const keepConversation = useRef(false);
@@ -66,10 +67,11 @@ function App() {
         .filter(m => !intake.localTexts.current.has(m.content.filter(p => p.type === 'text').map(p => p.text).join('\n'))).slice(-10)
         .map(m => ({ role: m.role, text: m.content.filter(p => p.type === 'text').map(p => p.text).join('\n').slice(0, 8000) }));
       setBusy(true);
+      setTaskStatus('正在处理本次任务，请稍候…');
       try {
         if (agentView) {
           const local = await intake.handle(text, abortSignal);
-          if (local !== null) return { content: [{ type: 'text', text: local }] };
+          if (local !== null) { setTaskStatus('本地处理完成，请核对回执'); return { content: [{ type: 'text', text: local }] }; }
           if (intake.pending) throw Error('请先完成当前归档确认，再开始模型分析');
         }
         const images = agentView ? await intake.analysisImages() :
@@ -80,12 +82,14 @@ function App() {
         const data = await response.json();
         if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : '模型请求失败');
         setReceipts(data.receipts ?? []);
+        setTaskStatus(data.mode === 'simulation' ? '模拟通信完成：未调用真实模型' : '模型已回复：建议仍需教师核对');
         if (student && data.receipts?.length) {
           const readback = await fetch(`${API}/api/students/${student.id}/subjects/${subject}/agent-notes`).then(r => r.json());
           setNotes(readback.notes ?? []);
         }
         return { content: [{ type: 'text', text: data.text }] };
       } catch (error) {
+        setTaskStatus(abortSignal.aborted ? '已停止等待；上游可能仍在处理，本地归档请先查询回执再重试' : '本次未完成；材料保留，可修改后重试，未自动重发');
         if (!abortSignal.aborted) setChatError(error instanceof Error ? error.message : '请求失败，未切换为模拟');
         throw error;
       } finally { setBusy(false); }
@@ -301,9 +305,10 @@ function App() {
           <p role="status">{notice}</p>
         </section>
         {!agentView ? archiveControls : null}
-        {agentView ? <p className="agent-scope muted">归档/查询仅本地。其他分析会发送本次文字、最近10条非归档对话、所选图片{imported ? '及主动导入摘要' : ''}到{providerReady ? '模型' : '本地模拟'}；请先去标识。最多3图、每图2MB，PDF不外发。</p> : <p className="muted">本次发送：当前消息、最多3张所选图片、当前对话最近10条文字{imported ? '、主动导入的摘要' : ''}。发送前请自行遮去姓名、学校等身份信息；自动替换当前称呼不能保证全部去标识。PDF仅保存在本地，本轮不会发给模型。</p>}
+        {agentView ? <details className="agent-scope muted"><summary>本次材料范围与图片说明</summary>归档/查询仅本地。其他分析发送本次文字、最近10条非归档对话、最多3张所选图片{imported ? '及主动导入摘要' : ''}；请先去标识。自动生成最长边2000像素的分析副本，细小字迹需核对；原件不变，PDF不外发。</details> : <p className="muted">本次发送：当前消息、最多3张所选图片、当前对话最近10条文字{imported ? '、主动导入的摘要' : ''}。发送前请自行遮去姓名、学校等身份信息；PDF仅保存在本地。</p>}
         <ComposerPrimitive.Root className="composer"><ComposerPrimitive.Input aria-label="消息" disabled={!contextReady || intake.working} placeholder={agentView ? '学生A今天的数学作业，帮我归档，第3、5题错' : '例如：请分析这道题，标出待核实之处'} /><ComposerPrimitive.Send disabled={!contextReady || configBusy || configDirty || intake.working}>发送</ComposerPrimitive.Send></ComposerPrimitive.Root>
         {chatError ? <p role="alert">{chatError}</p> : null}
+        <p className="task-status" role="status" data-testid="task-status">{taskStatus}</p>
         {receipts.map(item => <p className="receipt" data-testid="agent-receipt" key={item.id}>已写入并回读待确认笔记：{item.relative_path} · SHA-256 {item.sha256}</p>)}
         {!agentView ? <details><summary>本地AI待确认笔记（{notes.length}）</summary>{notes.map(item => <section key={item.id}>
           <button type="button" data-testid="import-agent-note" disabled={busy || configBusy} onClick={() => { setImported(item.markdown); setNotice('已准备导入这份AI待确认笔记，发送时携带；不代表老师已确认'); }}>导入这份笔记继续讨论</button>

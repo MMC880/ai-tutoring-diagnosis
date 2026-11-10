@@ -17,7 +17,7 @@ from skills_ref import read_properties, validate
 
 from backend.archive import ArchiveStore, SUBJECTS
 from backend.provider import ProviderConfig, ProviderError, ProviderService
-from backend.intake import IntakeService, RequestConflict, inspect_file
+from backend.intake import IntakeService, RequestConflict, inspect_file, analysis_image
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / 'skills' / 'math-error-review'
@@ -199,6 +199,15 @@ def create_app(db_path: Path | None = None, archive_root: Path | None = None, pr
         try:
             raw = await file.read(15 * 1024 * 1024 + 1)
             return inspect_file(file.filename or 'unnamed', raw)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        finally:
+            await file.close()
+
+    @app.post('/api/intake/analysis-image')
+    async def model_image(file: UploadFile):
+        try:
+            return analysis_image(await file.read(15 * 1024 * 1024 + 1))
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
         finally:
