@@ -90,8 +90,7 @@ return new Response('blocked',{status:403});}));require(${JSON.stringify(path.jo
   desktop = await _electron.launch({ executablePath: require('electron'), args: [path.join(OUT, 'host.cjs')], env, timeout: 45000 });
   main = await desktop.firstWindow(); main.setDefaultTimeout(10000);
   await main.getByTestId('health').filter({ hasText: '后端已连接' }).waitFor();
-  await main.getByRole('textbox', { name: '学生称呼', exact: true }).fill('体验甲');
-  await main.getByRole('button', { name: '选择或查找', exact: true }).click();
+  await main.getByTestId('student-list').getByRole('button').filter({ hasText: '体验甲' }).click();
   await main.getByTestId('current-student').filter({ hasText: '体验甲' }).waitFor();
 
   await check('UX-03: successful archive leaves one consistent completion state', async () => {

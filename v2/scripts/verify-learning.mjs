@@ -72,8 +72,8 @@ try {
   if (!desktop) desktop = await _electron.launch({ executablePath: require('electron'), args: [ROOT], env });
   const page = await desktop.firstWindow(); page.setDefaultTimeout(12000);
   const errors = []; page.on('pageerror', e => errors.push(e.message));
-  await page.getByRole('textbox', { name: '学生称呼', exact: true }).fill(student.name);
-  await page.getByRole('button', { name: '选择或查找', exact: true }).click();
+  await page.reload();
+  await page.getByTestId('student-list').getByRole('button').filter({ hasText: student.id }).click();
   await page.getByLabel('班级统计范围').selectOption('九年级一班');
   await page.getByRole('heading', { name: '班级共性 · 九年级一班', exact: true }).waitFor();
   pass('Blank roster class can select the actual archived class without changing membership history');

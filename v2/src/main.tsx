@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AssistantRuntimeProvider, useLocalRuntime, ThreadPrimitive, MessagePrimitive,
   ComposerPrimitive, SimpleImageAttachmentAdapter, type ChatModelAdapter } from '@assistant-ui/react';
 import './style.css';
-import { useIntake } from './intake';
+import { useIntake, type Student } from './intake';
 import { LearningPanel } from './learning';
 import { OperationsPanel } from './operations';
 
@@ -27,7 +27,14 @@ function Message() {
 function App() {
   const [subject, setSubject] = useState('math');
   const [studentName, setStudentName] = useState('');
-  const [student, setStudent] = useState<{ id: string; name: string } | null>(null);
+  const [student, setStudent] = useState<Student | null>(null);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [studentsLoading, setStudentsLoading] = useState(true);
+  const [studentsError, setStudentsError] = useState('');
+  const [studentFilter, setStudentFilter] = useState('');
+  const [addingStudent, setAddingStudent] = useState(false);
+  const rosterRequest = useRef<AbortController | null>(null);
+  const settingsDialog = useRef<HTMLDialogElement>(null);
   const [pendingName, setPendingName] = useState('');
   const [note, setNote] = useState('');
   const [files, setFiles] = useState<File[]>([]);
@@ -107,6 +114,27 @@ function App() {
   const [skill, setSkill] = useState('读取中');
   const [previews, setPreviews] = useState<{ name: string; src: string }[]>([]);
   const [notice, setNotice] = useState('');
+  const loadStudents = useCallback(async () => {
+    rosterRequest.current?.abort();
+    const request = new AbortController(); rosterRequest.current = request;
+    setStudentsLoading(true); setStudentsError('');
+    try {
+      const response = await fetch(`${API}/api/students`, { signal: request.signal });
+      if (!response.ok) throw new Error('学生名单暂时读取失败，已保存的档案不会因此删除。');
+      const data = await response.json();
+      if (!Array.isArray(data.students)) throw new Error('学生名单返回异常，请重试。');
+      if (!request.signal.aborted) setStudents(data.students);
+    } catch (error) {
+      if (!request.signal.aborted) setStudentsError(error instanceof Error ? error.message : '学生名单读取失败，请重试。');
+    } finally { if (!request.signal.aborted) setStudentsLoading(false); }
+  }, []);
+  useEffect(() => {
+    if (agentView) return;
+    void loadStudents();
+    const refresh = () => { void loadStudents(); };
+    window.addEventListener('focus', refresh);
+    return () => { rosterRequest.current?.abort(); window.removeEventListener('focus', refresh); };
+  }, [loadStudents]);
   async function configureProvider() {
     setConfigBusy(true);
     setConnection('正在配置并测试…');
@@ -211,6 +239,7 @@ function App() {
 
   async function findStudent(confirmNew = false) {
     setNotice('');
+    try {
     const response = await fetch(`${API}/api/students`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: studentName, confirm_new: confirmNew }) });
     const data = await response.json();
@@ -218,6 +247,8 @@ function App() {
     if (data.status === 'needs_create') { setPendingName(data.name); setNotice(`系统里还没有“${data.name}”，确认后新建档案`); return; }
     if (data.status === 'ambiguous') { setNotice('有重名学生，请在归档指令中说明班级，确认卡会列出候选'); return; }
     setStudent(data.student); setPendingName(''); setNotice(`已选择 ${data.student.name}`);
+    if (!agentView) { setAddingStudent(false); setStudentFilter(''); await loadStudents(); }
+    } catch { setNotice('学生选择未完成，请检查本地服务后重试。'); }
   }
 
   useEffect(() => { formRequest.current = crypto.randomUUID(); }, [student?.id, subject, note, files]);
@@ -256,10 +287,10 @@ function App() {
   }, [student, subject]);
 
   const studentControls = <section className="student-bar">
-    <label>学生称呼<input aria-label="学生称呼" disabled={busy} value={studentName} onChange={e => setStudentName(e.target.value)} placeholder="例如王小明" /></label>
+    <label>学生称呼<input aria-label="学生称呼" disabled={busy} value={studentName} onChange={e => { setStudentName(e.target.value); setPendingName(''); }} placeholder="例如王小明" /></label>
     <button type="button" disabled={busy} onClick={() => void findStudent(false)}>选择或查找</button>
     {pendingName ? <button type="button" disabled={busy} onClick={() => void findStudent(true)}>新建 {pendingName}</button> : null}
-    <span data-testid="current-student">{student ? `当前：${student.name}` : '尚未选择学生'}</span>
+    {agentView ? <span data-testid="current-student">{student ? `当前：${student.name}` : '尚未选择学生'}</span> : null}
   </section>;
   const archiveControls = <>
     <label className="note">老师说明<textarea aria-label="老师说明" value={note} onChange={e => setNote(e.target.value)} placeholder="例如：今天作业，第3、5、8题错" /></label>
@@ -279,22 +310,41 @@ function App() {
       <div className="agent-model"><strong>{model}</strong><span data-testid="agent-connection" role="status">{connection}</span></div>
       {subjectButtons}
     </> : <>
-    <header><div><span className="eyebrow">晋学智辅 2.0</span><h1>本地学习档案工作台</h1></div><span className="badge" data-testid="health">{health}</span></header>
-    <p className="muted">{providerReady ? '已配置真实模型。发送会把本次文字、图片及主动导入的摘要交给所配接口；请先核对材料。' : '当前为本地模拟。填写AI服务后可测试真实模型。'} 原件与AI待确认笔记分开保存。</p>
-    <details className="provider" open><summary>AI服务设置与连接测试</summary>
+    <header className="home-header"><div><span className="eyebrow">晋学智辅 2.0</span><h1>本地学习档案工作台</h1><span className="badge" data-testid="health">{health}</span></div>
+      <div className="home-actions"><button type="button" className="secondary" onClick={() => settingsDialog.current?.showModal()}>AI 服务设置</button>
+        <button type="button" disabled={openingAgent || configBusy || configDirty} onClick={() => void showAgent()}>打开 AI Agent</button></div>
+    </header>
+    <p className="home-hint muted">先选学科，再点学生查看档案。收作业或分析题目，点右上方“打开 AI Agent”。</p>
+    {configDirty ? <p className="settings-warning" role="status">AI 设置尚未完成测试，发送已暂停。请点“AI 服务设置”完成配置；本地档案仍可查看。</p> : null}
+    <dialog className="provider settings-dialog" ref={settingsDialog} aria-labelledby="settings-title" onCancel={e => { if (configBusy) e.preventDefault(); }}>
+      <div className="settings-heading"><h2 id="settings-title">AI 服务设置</h2><button type="button" className="secondary" disabled={configBusy} onClick={() => settingsDialog.current?.close()}>关闭设置</button></div>
+      <p className="muted">{providerReady ? '已配置真实模型。' : '当前为本地模拟。'} 本地归档、查档无需密钥。配置真实模型后，分析会发送本次文字、图片及主动导入的摘要，请先核对材料。</p>
       <label>接口地址<input aria-label="API地址" disabled={busy || configBusy} value={baseUrl} onChange={e => { setBaseUrl(e.target.value); setConfigDirty(true); setConnection('地址草稿已修改，重新配置测试前暂停发送'); }} /></label>
       <label>模型ID<input aria-label="模型ID" disabled={busy || configBusy} value={model} onChange={e => { setModel(e.target.value); setConfigDirty(true); setConnection('模型草稿已修改，重新配置测试前暂停发送'); }} /></label>
-      <label>API Key（仅后端进程内存，退出后清除）<input aria-label="API密钥" disabled={busy || configBusy} type="password" autoComplete="off" value={apiKey} onChange={e => { setApiKey(e.target.value); setConfigDirty(true); }} /></label>
+      <label>API Key（仅后端进程内存，退出后清除）<input aria-label="API密钥" disabled={busy || configBusy} type="password" autoComplete="off" value={apiKey} onChange={e => { setApiKey(e.target.value); setConfigDirty(true); setConnection('密钥草稿已修改，重新配置测试前暂停发送'); }} /></label>
       <button type="button" disabled={busy || configBusy || !apiKey} onClick={() => void configureProvider()}>配置并测试文字连接</button>
       <button type="button" disabled={busy || configBusy} onClick={async () => { await fetch(`${API}/api/provider/clear`, { method: 'POST' }); setApiKey(''); setProviderReady(false); setConfigDirty(false); setConnection('密钥已清除，恢复本地模拟'); notifyProviderChange(); }}>清除本次密钥</button>
       <p data-testid="provider-status" role="status">{connection}</p>
-      <div className="agent-launch"><div><strong>AI Agent</strong><p className="muted">打开独立聊天窗口，添加图片并交代任务。</p></div><button type="button" disabled={openingAgent || configBusy || configDirty} onClick={() => void showAgent()}>打开 AI Agent</button></div>
-    </details>
+    </dialog>
+    {subjectButtons}
+    <section className="student-picker" aria-label="学生名单">
+      <div className="student-picker-heading"><h2>点选学生，查看档案</h2><button type="button" className="secondary" disabled={busy} aria-expanded={addingStudent} onClick={() => { setAddingStudent(v => !v); setPendingName(''); }}>添加学生</button></div>
+      <div className="student-filter"><label>筛选学生（选填）<input aria-label="筛选学生" value={studentFilter} placeholder="名单可直接点选，也可输入姓名、班级或编号" onChange={e => setStudentFilter(e.target.value)} /></label>{studentFilter ? <button type="button" className="secondary" onClick={() => setStudentFilter('')}>清除筛选</button> : null}</div>
+      {studentsError ? <div data-testid="student-list-error" role="alert"><p>{studentsError}</p><button type="button" disabled={studentsLoading} onClick={() => void loadStudents()}>重试读取学生</button></div>
+        : studentsLoading && !students.length ? <p role="status">正在读取学生名单…</p>
+        : !students.length ? <p className="muted" data-testid="student-list-empty">还没有学生。点“添加学生”，或在 AI Agent 中提交作业并确认新建档案。</p>
+        : <><div className="student-list" data-testid="student-list" aria-label="可点选学生">
+          {students.filter(item => `${item.name} ${item.class_name ?? ''} ${item.id}`.toLowerCase().includes(studentFilter.trim().toLowerCase())).map(item => <button type="button" key={item.id} disabled={busy} aria-pressed={student?.id === item.id} onClick={() => {
+            if (student?.id !== item.id) setStudent(item);
+            setStudentName(item.name); setPendingName(''); setNotice('');
+          }}><strong>{item.name}</strong><span>{item.class_name || '班级待补'} · {item.id}</span></button>)}
+        </div>{!students.some(item => `${item.name} ${item.class_name ?? ''} ${item.id}`.toLowerCase().includes(studentFilter.trim().toLowerCase())) ? <p className="muted" data-testid="student-filter-empty">没有符合筛选的学生，可清除筛选查看全部名单。</p> : null}</>}
+      {addingStudent ? <div className="add-student-form">{studentControls}<p className="muted">已有学生直接点上面的名单，无需再查找。新学生核对称呼后再确认新建。</p></div> : null}
+      <p className="selected-student" data-testid="current-student" role="status">{student ? `当前：${student.name} · ${student.class_name || '班级待补'} · ${student.id} · ${SUBJECTS.find(item => item.id === subject)?.label}` : '还未选择学生，请点上方名单。'}</p>
+    </section>
+    <LearningPanel student={student} subject={subject} refreshKey={archiveGeneration} />
     <OperationsPanel />
     <section className="status"><span>中文教学技能：<strong data-testid="skill">{subject === 'math' ? skill : '通用分析，学科专用技能待配置'}</strong></span>{import.meta.env.DEV ? <a href="/copilot.html">打开 CopilotKit 独立实验</a> : null}</section>
-    {subjectButtons}
-    {studentControls}
-    <LearningPanel student={student} subject={subject} refreshKey={archiveGeneration} />
     </>}
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadPrimitive.Root className="thread">
@@ -325,7 +375,7 @@ function App() {
         </section>)}</details> : null}
       </ThreadPrimitive.Root>
     </AssistantRuntimeProvider>
-    <p className="muted agent-footnote">{agentView ? '模型在主窗口的AI服务中设置。关闭或刷新会清空未保存对话。' : 'AI服务内点击“打开 AI Agent”即可聊天。刷新页面会清空本次对话；已保存的摘要仍在本地档案。'}</p>
+    <p className="muted agent-footnote">{agentView ? '模型在主窗口的“AI 服务设置”中设置。关闭或刷新会清空未保存对话。' : '右上方点击“打开 AI Agent”即可聊天。刷新页面会清空本次对话；已保存的摘要仍在本地档案。'}</p>
   </main>;
 }
 createRoot(document.getElementById('root')!).render(<App />);
