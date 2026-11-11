@@ -55,6 +55,7 @@ export function useIntake(student: Student | null, subject: string, selected: (s
     if (data.status === 'SAVED' && data.receipt) {
       selected(data.receipt.student, data.receipt.subject);
       setMaterials([]); request.current = null;
+      setNotice('本组材料已归档，详情见回执。可以添加下一份作业。');
     }
   }
 
@@ -70,8 +71,18 @@ export function useIntake(student: Student | null, subject: string, selected: (s
   }
 
   async function handle(text: string, signal: AbortSignal): Promise<string | null> {
-    const archive = /归档|存档|(?:帮我|请)保存/.test(text);
-    const query = !materials.length && /最近|历史|错过|错题.{0,8}(?:哪些|记录)|出现过几次|知识点/.test(text);
+    // Mentioning a completed archive is context, not a new save instruction.
+    const command = text.replace(/(?:已经|刚才|之前|上次|曾经|已)(?:归档|存档|保存)(?:过|好)?|(?:归档|存档|保存)(?:过)?的/g, '');
+    const negated = /不要.{0,8}(?:归档|保存|存档)|不(?:用|必|要)?(?:归档|保存|存档)|别(?:归档|保存|存档)/.test(text);
+    const archive = !negated && /归档|存档|(?:帮我|请)保存/.test(command);
+    const imageAnalysis = /(?:分析|讲解|解释).{0,20}(?:这张|这份|图片|照片|刚才|已归档)|(?:这张|这份|图片|照片).{0,20}(?:分析|讲解|解释)/.test(text);
+    const query = !imageAnalysis && /最近|历史|错过|错题.{0,8}(?:哪些|记录)|出现过几次|知识点/.test(text);
+    const archivedAnalysis = /分析|讲解|解释/.test(text) && /(?:已经|刚才|之前|上次|曾经|已)(?:归档|存档|保存)|(?:归档|存档|保存)(?:过)?的/.test(text);
+    if (!archive && !query && archivedAnalysis && !materials.some(m => !m.file.name.toLowerCase().endsWith('.pdf'))) {
+      const guidance = '请重新选择需要分析的图片，再说明想分析哪道题。已归档原件仍保留；本次没有新建归档，也没有调用模型。';
+      localTexts.current.add(text); localTexts.current.add(guidance);
+      return guidance;
+    }
     if (!archive && !query) return null;
     localTexts.current.add(text);
     if (query && !archive) {

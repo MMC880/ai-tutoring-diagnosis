@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -12,7 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 REPO = ROOT.parent
 
 
-def build(destination: Path):
+def build(destination: Path, version='2.0.0-preview.1'):
+    if not re.fullmatch(r'\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?', version):
+        raise SystemExit('版本号无效')
     if destination.exists():
         raise SystemExit('目标已存在，请使用新的交付目录；不覆盖旧包')
     destination.mkdir(parents=True)
@@ -25,7 +28,7 @@ def build(destination: Path):
     (portable / 'electron.exe').rename(portable / 'JinxueZhifu.exe')
     app = portable / 'resources/app'
     shutil.copytree(ROOT / 'desktop', app / 'desktop')
-    (app / 'package.json').write_text(json.dumps({'name': 'jinxue-zhifu', 'version': '2.0.0-preview.1',
+    (app / 'package.json').write_text(json.dumps({'name': 'jinxue-zhifu', 'version': version,
         'main': 'desktop/main.cjs', 'description': '晋学智辅2.0本地学习档案试用版'}), encoding='utf-8')
     frozen = destination / 'frozen'
     # Reuse pinned PyInstaller 6.22.3; v2 dependency search path precedes old dependencies.
@@ -52,7 +55,8 @@ def archive(destination: Path):
     for relative, digest in manifest.items():
         if hashlib.sha256((portable / relative).read_bytes()).hexdigest() != digest:
             raise SystemExit('已测包发生变化：' + relative)
-    archive_path = destination / 'JinxueZhifu-2.0.0-preview.1-Windows-x64.zip'
+    version = json.loads((portable / 'resources/app/package.json').read_text('utf-8'))['version']
+    archive_path = destination / f'JinxueZhifu-{version}-Windows-x64.zip'
     with zipfile.ZipFile(archive_path, 'x', zipfile.ZIP_DEFLATED) as bundle:
         for relative in manifest:
             bundle.write(portable / relative, 'JinxueZhifu/' + relative)
@@ -66,4 +70,7 @@ if __name__ == '__main__':
     destination = Path(sys.argv[2]).resolve()
     if REPO / 'docs/delivery' not in destination.parents:
         raise SystemExit('交付路径需在本项目docs/delivery内')
-    {'build': build, 'archive': archive}[sys.argv[1]](destination)
+    if sys.argv[1] == 'build':
+        build(destination, sys.argv[3] if len(sys.argv) > 3 else '2.0.0-preview.1')
+    else:
+        {'archive': archive}[sys.argv[1]](destination)
