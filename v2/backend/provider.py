@@ -1,4 +1,4 @@
-"""OpenAI-compatible transport and bounded Agent tools; credentials stay in memory."""
+"""OpenAI-compatible transport and bounded tools; optional Windows encrypted settings."""
 from __future__ import annotations
 
 import base64
@@ -19,6 +19,7 @@ import httpx
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field
 from backend.agent_history import AgentHistory
+from backend.provider_store import StoreError
 
 DEFAULT_BASE = 'https://discovery-api.intern-ai.org.cn/v1'
 DEFAULT_MODEL = 'deepseek-v4.1-flash-1017'
@@ -32,6 +33,10 @@ class ProviderConfig(BaseModel):
     base_url: str = Field(default=DEFAULT_BASE, max_length=400)
     model: str = Field(default=DEFAULT_MODEL, min_length=1, max_length=160)
     api_key: str = Field(min_length=1, max_length=4096, repr=False)
+
+
+class ProviderSubmission(ProviderConfig):
+    remember: bool = False
 
 
 class LearningNote(BaseModel):
@@ -67,22 +72,38 @@ def image_content(value: str) -> str:
 
 
 class ProviderService:
-    def __init__(self, archive, skill: Path, transport=None, learning=None):
+    def __init__(self, archive, skill: Path, transport=None, learning=None, store=None):
         self.archive, self.skill, self.transport = archive, skill, transport
         self.learning = learning
         self._config = None
         self._connection = 'NOT_TESTED'
         self._lock = threading.RLock()
+        self._store = store
+        self._saved = False
+        self._storage_status = 'NOT_SAVED'
+        if store is not None:
+            try:
+                value = store.load()
+                if value is not None:
+                    self._config = self.validate_config(ProviderConfig(**value))
+                    self._saved = True
+                    self._storage_status = 'RESTORED'
+            except (StoreError, ValueError):
+                self._storage_status = 'RESTORE_FAILED'
 
     def settings(self):
         with self._lock:
             config = self._config
             return {'base_url': config.base_url if config else DEFAULT_BASE,
                     'model': config.model if config else DEFAULT_MODEL, 'key_loaded': bool(config),
-                    'connection': self._connection, 'key_storage': 'PROCESS_MEMORY_ONLY',
+                    'connection': self._connection,
+                    'key_storage': 'WINDOWS_CURRENT_USER_DPAPI' if self._store else 'PROCESS_MEMORY_ONLY',
+                    'storage_available': self._store is not None, 'config_saved': self._saved,
+                    'storage_status': self._storage_status,
                     'mode': 'provider' if config else 'simulation'}
 
-    def configure(self, config: ProviderConfig):
+    @staticmethod
+    def validate_config(config: ProviderConfig):
         url = urlsplit(config.base_url.rstrip('/'))
         try:
             port = url.port
@@ -99,8 +120,21 @@ class ProviderService:
                 raise
         if any(ord(char) < 33 or ord(char) > 126 for char in config.api_key) or any(ord(c) < 32 for c in config.model):
             raise ValueError('密钥或模型名称包含非法字符')
+        return ProviderConfig(base_url=config.base_url.rstrip('/'), model=config.model, api_key=config.api_key)
+
+    def configure(self, config: ProviderConfig, remember=False):
+        config = self.validate_config(config)
         with self._lock:
-            self._config = config.model_copy(update={'base_url': config.base_url.rstrip('/')})
+            if remember and not self._store:
+                raise StoreError('当前入口未启用Windows安全存储；未保存或发送配置')
+            if self._store:
+                if remember:
+                    self._store.save(config.model_dump())
+                else:
+                    self._store.delete()
+            self._saved = bool(remember)
+            self._storage_status = 'SAVED' if remember else 'NOT_SAVED'
+            self._config = config
             self._connection = 'NOT_TESTED'
         return self.settings()
 
@@ -108,6 +142,14 @@ class ProviderService:
         with self._lock:
             self._config = None
             self._connection = 'NOT_TESTED'
+            if self._store:
+                try:
+                    self._store.delete()
+                except StoreError:
+                    self._storage_status = 'CLEAR_FAILED'
+                    raise
+            self._saved = False
+            self._storage_status = 'NOT_SAVED'
         return self.settings()
 
     def _request(self, config, payload):

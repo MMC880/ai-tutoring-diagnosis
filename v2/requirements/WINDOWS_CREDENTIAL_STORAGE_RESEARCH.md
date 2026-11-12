@@ -195,6 +195,8 @@ Electron 官方建议 renderer → main 的双向操作使用 `ipcRenderer.invok
 
 ## 证据范围及未实测项
 
+**后续实施记录（2026-11-12）**：已按用户新授权采用 DPAPI，并实测本机加解密、软件进程重开恢复及清除。真实模型仍返回 401。详见 [SECURE_CONFIG_DELIVERY.md](SECURE_CONFIG_DELIVERY.md)。以下列表描述研究阶段当时的证据边界，保留供追溯，不代表最新实现状态。
+
 - 已完成：读取当前源码与锁定版本；通过 HTTPS 读取以下微软官方文档 / 官方 SDK 头及 Electron 45.2.3 官方文档 / 源码，核对 2560 字节限制、两个 LOCAL_MACHINE 标志差别、DPAPI 参数 / 错误约定、safeStorage 主进程与异步返回行为。
 - 本轮没有：`CredEnumerate` 或其他真实凭据枚举、`CredRead` / 写入 / 删除用户项、DPAPI 合成 round-trip、safeStorage 实际运行、注册表 / 密钥材料读取、Windows 重启 / 跨账户 / 跨电脑 / 域漫游 / 系统恢复测试、外部模型请求、产品代码改动或依赖安装。
 - 没有证明：所有企业 Windows 策略兼容、所有系统备份都不会携带密文、删除后不存在磁盘 / 系统备份残留、同用户恶意程序无法访问、4096 字节在本项目未来封装中已经通过。此文档的“推荐”属于有官方依据的实现建议。

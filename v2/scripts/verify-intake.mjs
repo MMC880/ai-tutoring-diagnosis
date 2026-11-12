@@ -14,6 +14,7 @@ const OUT = path.join(ROOT, '.qa-temp', 'intake', String(Date.now()));
 const require = createRequire(import.meta.url);
 const packagedExe = process.argv[2];
 const env = { ...process.env, PYTHONUTF8: '1', PYTHONDONTWRITEBYTECODE: '1' };
+env.JINXUE_PROVIDER_CONFIG_PATH = path.join(OUT, 'isolated-provider.dpapi');
 delete env.ELECTRON_RUN_AS_NODE;
 const children = [], logs = [], checks = [], errors = [];
 let desktop;

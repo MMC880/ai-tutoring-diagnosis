@@ -46,6 +46,9 @@ function App() {
   const [model, setModel] = useState('deepseek-v4.1-flash-1017');
   const [apiKey, setApiKey] = useState('');
   const [providerReady, setProviderReady] = useState(false);
+  const [rememberConfig, setRememberConfig] = useState(false);
+  const [storageAvailable, setStorageAvailable] = useState(false);
+  const [storageStatus, setStorageStatus] = useState('未在本机保存配置');
   const [configBusy, setConfigBusy] = useState(false);
   const [configDirty, setConfigDirty] = useState(false);
   const [connection, setConnection] = useState('未配置，当前为本地模拟');
@@ -143,20 +146,47 @@ function App() {
     window.addEventListener('focus', refresh);
     return () => { rosterRequest.current?.abort(); window.removeEventListener('focus', refresh); };
   }, [loadStudents]);
-  async function configureProvider() {
+  function readStorageStatus(data: { storage_available?: boolean; config_saved?: boolean; storage_status?: string }) {
+    setStorageAvailable(Boolean(data.storage_available));
+    setRememberConfig(Boolean(data.config_saved));
+    setStorageStatus(data.storage_status === 'RESTORE_FAILED' ? '本机配置无法恢复，请重新填写；旧保存项未删除'
+      : data.storage_status === 'CLEAR_FAILED' ? '当前连接已停用，但保存项未删除，重开仍可能恢复'
+      : data.config_saved ? (data.storage_status === 'RESTORED' ? '已从本机Windows加密存储恢复配置' : '已用Windows当前用户加密保存配置')
+      : '仅本次使用，退出后清除；本机没有保存的配置');
+  }
+  async function configureProvider(testCurrent = false) {
     setConfigBusy(true);
     setConnection('正在配置并测试…');
     try {
-      const response = await fetch(`${API}/api/provider`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base_url: baseUrl, model, api_key: apiKey }) });
-      const result = await response.json();
-      if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : '配置无效');
-      setApiKey(''); setProviderReady(true); setConfigDirty(false);
+      if (!testCurrent) {
+        const response = await fetch(`${API}/api/provider`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base_url: baseUrl, model, api_key: apiKey, remember: rememberConfig }) });
+        const result = await response.json();
+        if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : '配置无效');
+        readStorageStatus(result);
+        setApiKey(''); setProviderReady(true); setConfigDirty(false);
+      }
       const test = await fetch(`${API}/api/provider/test`, { method: 'POST' });
       const data = await test.json();
       if (!test.ok) throw new Error(data.detail || '连接失败');
       setConnection(`文字连接成功：${data.model}；图片和工具需单独验证`);
     } catch (error) { setConnection(error instanceof Error ? error.message : '连接失败'); }
+    finally { setConfigBusy(false); notifyProviderChange(); }
+  }
+  async function clearProvider() {
+    setConfigBusy(true);
+    try {
+      const response = await fetch(`${API}/api/provider/clear`, { method: 'POST' });
+      const data = await response.json();
+      // A failed disk deletion still disables the active configuration.
+      if (!response.ok) {
+        const state = await fetch(`${API}/api/provider`).then(r => r.json());
+        setProviderReady(Boolean(state.key_loaded)); readStorageStatus(state);
+        throw new Error(data.detail || '清除失败');
+      }
+      setApiKey(''); setProviderReady(false); setConfigDirty(false); readStorageStatus(data);
+      setConnection('密钥已清除，恢复本地模拟');
+    } catch (error) { setConnection(error instanceof Error ? error.message : '清除失败，请重试'); }
     finally { setConfigBusy(false); notifyProviderChange(); }
   }
   async function showAgent() {
@@ -187,6 +217,7 @@ function App() {
   useEffect(() => {
     function refreshProvider() { void fetch(`${API}/api/provider`).then(r => r.json()).then(data => {
       setProviderReady(data.key_loaded); setBaseUrl(data.base_url); setModel(data.model);
+      readStorageStatus(data);
       setConnection(data.key_loaded ? (data.connection === 'PASS' ? `文字连接成功：${data.model}` : '已配置，请在AI服务中测试连接') : '未配置，当前为本地模拟');
     }).catch(() => { if (agentView) setConnection('AI服务状态读取失败，请检查本地服务'); }); }
     refreshProvider();
@@ -341,9 +372,12 @@ function App() {
       <p className="muted">{providerReady ? '已配置真实模型。' : '当前为本地模拟。'} 本地归档、查档无需密钥。配置真实模型后，分析会发送本次文字、图片及主动导入的摘要，请先核对材料。</p>
       <label>接口地址<input aria-label="API地址" disabled={busy || configBusy} value={baseUrl} onChange={e => { setBaseUrl(e.target.value); setConfigDirty(true); setConnection('地址草稿已修改，重新配置测试前暂停发送'); }} /></label>
       <label>模型ID<input aria-label="模型ID" disabled={busy || configBusy} value={model} onChange={e => { setModel(e.target.value); setConfigDirty(true); setConnection('模型草稿已修改，重新配置测试前暂停发送'); }} /></label>
-      <label>API Key（仅后端进程内存，退出后清除）<input aria-label="API密钥" disabled={busy || configBusy} type="password" autoComplete="off" value={apiKey} onChange={e => { setApiKey(e.target.value); setConfigDirty(true); setConnection('密钥草稿已修改，重新配置测试前暂停发送'); }} /></label>
+      <label>API Key（保存后不回显；修改地址或模型需重新输入）<input aria-label="API密钥" disabled={busy || configBusy} type="password" autoComplete="off" value={apiKey} onChange={e => { setApiKey(e.target.value); setConfigDirty(true); setConnection('密钥草稿已修改，重新配置测试前暂停发送'); }} /></label>
+      <label><input type="checkbox" checked={rememberConfig} disabled={busy || configBusy || !storageAvailable} onChange={e => { setRememberConfig(e.target.checked); setConfigDirty(true); }} />在这台电脑记住配置（Windows当前用户加密；需重新输入Key并配置后生效）</label>
+      <p data-testid="provider-storage" role="status">{storageStatus}</p>
       <button type="button" disabled={busy || configBusy || !apiKey} onClick={() => void configureProvider()}>配置并测试文字连接</button>
-      <button type="button" disabled={busy || configBusy} onClick={async () => { await fetch(`${API}/api/provider/clear`, { method: 'POST' }); setApiKey(''); setProviderReady(false); setConfigDirty(false); setConnection('密钥已清除，恢复本地模拟'); notifyProviderChange(); }}>清除本次密钥</button>
+      <button type="button" disabled={busy || configBusy || !providerReady || configDirty} onClick={() => void configureProvider(true)}>测试当前连接（无需重输Key）</button>
+      <button type="button" disabled={busy || configBusy} onClick={() => void clearProvider()}>清除密钥与本机保存项</button>
       <p data-testid="provider-status" role="status">{connection}</p>
     </dialog>
     {subjectButtons}

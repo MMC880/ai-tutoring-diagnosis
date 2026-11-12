@@ -15,6 +15,7 @@ const WEB = path.join(ROOT, 'dist');
 const require = createRequire(import.meta.url);
 const checks = [], errors = [], requests = [], logs = [];
 const env = { ...process.env, PYTHONUTF8: '1', PYTHONDONTWRITEBYTECODE: '1', JINXUE_HOME: path.join(OUT, 'profile') };
+env.JINXUE_PROVIDER_CONFIG_PATH = path.join(OUT, 'isolated-provider.dpapi');
 delete env.ELECTRON_RUN_AS_NODE;
 let backend, desktop, main, agent, fixture;
 async function api(endpoint, body) {

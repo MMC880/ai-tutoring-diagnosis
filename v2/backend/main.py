@@ -21,7 +21,8 @@ from skills_ref.parser import parse_frontmatter
 from skills_ref.validator import validate_metadata
 
 from backend.archive import ArchiveStore, SUBJECTS
-from backend.provider import ProviderConfig, ProviderError, ProviderService
+from backend.provider import ProviderSubmission, ProviderError, ProviderService
+from backend.provider_store import ProviderStore, StoreError, default_path
 from backend.intake import IntakeService, RequestConflict, inspect_file, analysis_image
 from backend.learning import LearningService, LinkInput, FeedbackInput, ApprovalInput, RetestInput, CorrectionInput
 from backend.operations import Operations
@@ -69,7 +70,7 @@ class QueryInput(BaseModel):
     subject: str = Field(default='math', pattern='^(math|english|physics|chemistry)$')
 
 
-def create_app(db_path: Path | None = None, archive_root: Path | None = None, provider_transport=None):
+def create_app(db_path: Path | None = None, archive_root: Path | None = None, provider_transport=None, provider_store=None):
     app = FastAPI(title='晋学智辅2.0', docs_url=None, redoc_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=['127.0.0.1', 'localhost', 'testserver'])
     app.add_middleware(CORSMiddleware, allow_origins=['http://127.0.0.1:5179'],
@@ -79,7 +80,7 @@ def create_app(db_path: Path | None = None, archive_root: Path | None = None, pr
     intake = IntakeService(archive)
     learning = LearningService(intake)
     operations = Operations(intake)
-    provider = ProviderService(archive, SKILL / 'SKILL.md', provider_transport, learning=learning)
+    provider = ProviderService(archive, SKILL / 'SKILL.md', provider_transport, learning=learning, store=provider_store)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request, error):
@@ -141,15 +142,20 @@ def create_app(db_path: Path | None = None, archive_root: Path | None = None, pr
         return provider.settings()
 
     @app.post('/api/provider')
-    def configure_provider(payload: ProviderConfig):
+    def configure_provider(payload: ProviderSubmission):
         try:
-            return provider.configure(payload)
+            return provider.configure(payload, remember=payload.remember)
+        except StoreError as error:
+            raise HTTPException(503, str(error)) from None
         except ValueError as error:
             raise HTTPException(422, str(error)) from None
 
     @app.post('/api/provider/clear')
     def clear_provider():
-        return provider.clear()
+        try:
+            return provider.clear()
+        except StoreError as error:
+            raise HTTPException(503, str(error)) from None
 
     @app.post('/api/provider/test')
     def test_provider():
@@ -420,4 +426,11 @@ def create_app(db_path: Path | None = None, archive_root: Path | None = None, pr
     return app
 
 
-app = create_app()
+def create_desktop_app():
+    # Optional path is non-secret and only for explicit isolated desktop testing.
+    store = ProviderStore(Path(os.environ['JINXUE_PROVIDER_CONFIG_PATH'])
+                          if os.environ.get('JINXUE_PROVIDER_CONFIG_PATH') else default_path())
+    return create_app(provider_store=store)
+
+
+app = create_app()  # Importing the module never loads the user's saved credential.

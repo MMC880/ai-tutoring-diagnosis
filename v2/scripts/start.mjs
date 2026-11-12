@@ -36,7 +36,7 @@ try {
   // Reject occupied ports instead of accidentally attaching to an unrelated service.
   const {createServer}=await import('node:net');
   for(const port of [8019,5179]) await new Promise((resolve,reject)=>{const server=createServer();server.once('error',()=>reject(Error(`端口${port}已占用，请先退出上一轮验证`)));server.listen(port,'127.0.0.1',()=>server.close(resolve));});
-  const backend=launch(python,['-X','utf8','-B','-m','uvicorn','backend.main:app','--host','127.0.0.1','--port','8019','--no-access-log']);
+  const backend=launch(python,['-X','utf8','-B','-m','uvicorn','backend.main:create_desktop_app','--factory','--host','127.0.0.1','--port','8019','--no-access-log']);
   await wait('http://127.0.0.1:8019/health',backend);
   const vite=launch(process.execPath,[path.join(ROOT,'node_modules/vite/bin/vite.js'),'--host','127.0.0.1','--port','5179','--strictPort']);
   await wait('http://127.0.0.1:5179',vite);

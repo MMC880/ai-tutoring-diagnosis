@@ -14,6 +14,7 @@ const WEB = path.resolve(process.argv[2] || path.join(ROOT, 'dist'));
 const require = createRequire(import.meta.url);
 const checks = [], requests = [], errors = [], logs = [];
 const env = { ...process.env, PYTHONUTF8: '1', PYTHONDONTWRITEBYTECODE: '1', JINXUE_HOME: path.join(OUT, 'profile') };
+env.JINXUE_PROVIDER_CONFIG_PATH = path.join(OUT, 'isolated-provider.dpapi');
 delete env.ELECTRON_RUN_AS_NODE;
 let backend, desktop, main, agent;
 async function send(text) {

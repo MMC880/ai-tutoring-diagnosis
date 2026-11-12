@@ -7,7 +7,7 @@ const ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const results=[];
 for(let run=1;run<=2;run++){
   await new Promise((resolve,reject)=>{
-    const child=spawn(process.execPath,['scripts/start.mjs','--lifecycle-check'],{cwd:ROOT,windowsHide:true,env:process.env});
+    const child=spawn(process.execPath,['scripts/start.mjs','--lifecycle-check'],{cwd:ROOT,windowsHide:true,env:{...process.env,JINXUE_PROVIDER_CONFIG_PATH:path.join(ROOT,'.qa-temp/lifecycle-provider.dpapi')}});
     const timer=setTimeout(()=>{child.kill();reject(Error('Lifecycle test exceeded 45 seconds'));},45000);
     child.stdout.on('data',d=>void appendFile(path.join(ROOT,'.qa-temp/lifecycle.log'),d));
     child.stderr.on('data',d=>void appendFile(path.join(ROOT,'.qa-temp/lifecycle.log'),d));

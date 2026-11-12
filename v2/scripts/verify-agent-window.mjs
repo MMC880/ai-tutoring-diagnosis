@@ -13,6 +13,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, '.qa-temp/agent-window');
 const require = createRequire(import.meta.url);
 const env = { ...process.env, PYTHONUTF8: '1', PYTHONDONTWRITEBYTECODE: '1', JINXUE_VERIFY_MOCK: '1' };
+env.JINXUE_PROVIDER_CONFIG_PATH = path.join(OUT, 'isolated-provider.dpapi');
 delete env.ELECTRON_RUN_AS_NODE;
 const checks = [], logs = [], errors = [];
 const children = [];
@@ -122,7 +123,7 @@ try {
     try { await window.jinxueDesktop.openAgent({ subject: 'math', studentId: ['s001'] }); return false; } catch { return true; }
   }); assert.equal(invalidStudent, true);
   pass('IPC rejects Agent sender and invalid context; no filesystem bridge');
-  await main.getByRole('button', { name: '清除本次密钥', exact: true }).click();
+  await main.getByRole('button', { name: '清除密钥与本机保存项', exact: true }).click();
   await agent.getByTestId('agent-connection').filter({ hasText: '本地模拟' }).waitFor();
   pass('Open Agent receives provider configuration changes without a copied key');
   await agent.close();

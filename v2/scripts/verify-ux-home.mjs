@@ -17,6 +17,7 @@ const apiPort = exe ? 8019 : 18019;
 const checks = [], errors = [], logs = [], requests = [];
 const env = { ...process.env, PYTHONUTF8: '1', PYTHONDONTWRITEBYTECODE: '1',
   JINXUE_HOME: path.join(OUT, 'profile'), JINXUE_DATA_DIR: path.join(OUT, 'archive') };
+env.JINXUE_PROVIDER_CONFIG_PATH = path.join(OUT, 'isolated-provider.dpapi');
 delete env.ELECTRON_RUN_AS_NODE;
 let backend, desktop, page;
 async function free(port) {
@@ -177,7 +178,7 @@ return new Response('blocked',{status:403});}));require(${JSON.stringify(path.jo
     await dialog.getByRole('button', { name: '配置并测试文字连接', exact: true }).click();
     await dialog.getByTestId('provider-status').filter({ hasText: '文字连接成功' }).waitFor();
     assert.equal(await dialog.getByLabel('API密钥', { exact: true }).inputValue(), '');
-    await dialog.getByRole('button', { name: '清除本次密钥', exact: true }).click();
+    await dialog.getByRole('button', { name: '清除密钥与本机保存项', exact: true }).click();
     await dialog.getByTestId('provider-status').filter({ hasText: '恢复本地模拟' }).waitFor();
     await dialog.getByRole('button', { name: '关闭设置', exact: true }).click();
   });

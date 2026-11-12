@@ -150,7 +150,7 @@ def main():
         if not source.is_relative_to(FIXTURES.resolve()) or not source.is_dir():
             raise ValueError('先前合成样例库不存在或路径越界；未改用真实资料')
         source_before = snapshot(source)
-        report['student_scope'] = {'id': fixtures['student']['id'], 'subject': 'math',
+        report['student_scope'] = {'student_id': fixtures['student']['id'], 'subject': 'math',
                                    'assignment_id': fixtures['new']['assignment_id']}
         archive = out / 'archive'
         archive.mkdir()
@@ -200,6 +200,8 @@ def main():
         provider.configure(ProviderConfig(api_key=secret, base_url=DEFAULT_BASE, model=DEFAULT_MODEL))
         payload = ChatInput(text=PROMPT, **report['student_scope'],
                             allow_history=True, allow_originals=True, allow_save=True)
+        if payload.student_id != fixtures['student']['id'] or payload.assignment_id != fixtures['new']['assignment_id']:
+            raise ValueError('测试学生或作业范围未正确绑定，停止外发')
         result = provider.chat(payload)
         write('provider-result.json', result)
         if not result or result.get('mode') != 'provider':

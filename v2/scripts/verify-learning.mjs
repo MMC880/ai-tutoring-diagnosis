@@ -14,6 +14,7 @@ const checks = [], children = [], logs = [];
 const env = { ...process.env, PYTHONUTF8: '1', PYTHONDONTWRITEBYTECODE: '1', JINXUE_DESKTOP_TOKEN: 'synthetic-local-test-token' };
 // Keep asynchronous event assertion failures inside the try/finally cleanup.
 process.on('unhandledRejection', error => { logs.push(String(error)); });
+env.JINXUE_PROVIDER_CONFIG_PATH = path.join(OUT, 'isolated-provider.dpapi');
 delete env.ELECTRON_RUN_AS_NODE;
 let desktop;
 function pass(name) { checks.push({ name, status: 'PASS' }); console.log('PASS', name); }
