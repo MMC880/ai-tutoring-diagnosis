@@ -12,7 +12,7 @@ export async function api(url: string, body?: unknown) {
   return data;
 }
 
-export function LearningPanel({ student, subject, refreshKey = 0 }: { student: Student | null; subject: string; refreshKey?: number }) {
+export function LearningPanel({ student, subject, refreshKey = 0, onAssignmentChange }: { student: Student | null; subject: string; refreshKey?: number; onAssignmentChange?: (id: string) => void }) {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [links, setLinks] = useState<Link[]>([]);
   const [feedback, setFeedback] = useState<Feedback[]>([]);
@@ -72,7 +72,7 @@ export function LearningPanel({ student, subject, refreshKey = 0 }: { student: S
     {!student ? <p>请先选择学生</p> : <>
       <button disabled={busy} onClick={() => refresh(g => g + 1)}>刷新作业记录</button>
       {legacy.length ? <details><summary>旧手工作业待续接（{legacy.length}）</summary><p>原件、旧摘要原地保留；续接后旧题号仍待核对，需要老师确认。</p>{legacy.map(a => <p key={a.assignment_id}>{a.assignment_date} · {a.assignment_id} <button disabled={busy} onClick={async () => { setBusy(true); try { await api('/api/learning/continue-legacy', { student_id: student!.id, subject, assignment_id: a.assignment_id }); setNotice('已续接，旧题号仍待核对，原件与历史未改'); refresh(g => g + 1); } catch (error) { setNotice(error instanceof Error ? error.message : '续接失败'); } finally { setBusy(false); } }}>续接这份旧作业</button></p>)}</details> : null}
-      <label>作业<select aria-label="学习作业" value={assignmentId} onChange={e => { setAssignment(e.target.value); setNumber(''); }}><option value="">请选择作业</option>{assignments.map(a => <option key={a.assignment_id} value={a.assignment_id}>{a.assignment_date} · {a.batch}</option>)}</select></label>
+      <label>作业<select aria-label="学习作业" value={assignmentId} onChange={e => { setAssignment(e.target.value); setNumber(''); onAssignmentChange?.(e.target.value); }}><option value="">请选择作业</option>{assignments.map(a => <option key={a.assignment_id} value={a.assignment_id}>{a.assignment_date} · {a.batch}</option>)}</select></label>
       {assignment ? <>
         <Correction key={`${assignmentId}/${assignment.correction_revision || 0}`} assignment={assignment} scope={{ student_id: student!.id, subject }} updated={() => refresh(g => g + 1)} />
         <label>问题题号<select aria-label="问题题号" value={number} onChange={e => setNumber(e.target.value)}><option value="">请选择题号</option>{[...new Set([...assignment.questions, ...assignment.candidate_questions])].map(q => <option key={q} value={q}>第{q}题{assignment.questions.includes(q) ? '（教师提供）' : '（AI候选）'}</option>)}</select></label>

@@ -50,6 +50,13 @@ function App() {
   const [configDirty, setConfigDirty] = useState(false);
   const [connection, setConnection] = useState('未配置，当前为本地模拟');
   const [allowSave, setAllowSave] = useState(false);
+  const [allowHistory, setAllowHistory] = useState(false);
+  const [allowOriginals, setAllowOriginals] = useState(false);
+  const [assignmentContext, setAssignmentContext] = useState<{ studentId: string; subject: string; id: string } | null>(null);
+  const [archivedAssignments, setArchivedAssignments] = useState<{ assignment_id: string; assignment_date: string; file_count: number; questions: string[] }[]>([]);
+  const [assignmentError, setAssignmentError] = useState('');
+  const selectedAssignment = assignmentContext?.studentId === student?.id && assignmentContext?.subject === subject ? assignmentContext.id : '';
+  useEffect(() => { if (!agentView) setAssignmentContext(null); }, [student?.id, subject]);
   const [busy, setBusy] = useState(false);
   const [notes, setNotes] = useState<{ id: string; markdown: string }[]>([]);
   const [receipts, setReceipts] = useState<{ id: string; relative_path: string; sha256: string }[]>([]);
@@ -64,7 +71,7 @@ function App() {
     keepConversation.current = true;
     if (student?.id !== chosen.id || subject !== chosenSubject) {
       closeHistoryScope.current();
-      setImported(''); setAllowSave(false); setNotes([]); setReceipts([]);
+      setImported(''); setAllowSave(false); setAllowHistory(false); setAllowOriginals(false); setNotes([]); setReceipts([]);
     }
     setStudent(chosen); setStudentName(chosen.name); setSubject(chosenSubject);
   });
@@ -81,7 +88,7 @@ function App() {
       setTaskStatus('正在处理本次任务，请稍候…');
       try {
         if (agentView) {
-          const local = await intake.handle(text, abortSignal);
+          const local = await intake.handle(text, abortSignal, allowHistory || (!!selectedAssignment && allowOriginals));
           if (local !== null) { setTaskStatus('本地处理完成，请核对回执'); return { content: [{ type: 'text', text: local }] }; }
           if (intake.pending) throw Error('请先完成当前归档确认，再开始模型分析');
         }
@@ -89,14 +96,15 @@ function App() {
           (last?.attachments ?? []).flatMap(a => a.content.filter(p => p.type === 'image').map(p => p.image));
         const response = await fetch(`${API}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text, images, history, image_count: images.length, imported_summary: imported,
-            student_id: student?.id, subject, allow_save: allowSave }), signal: abortSignal });
+            student_id: student?.id, subject, assignment_id: selectedAssignment || undefined,
+            allow_history: allowHistory, allow_originals: allowOriginals, allow_save: allowSave }), signal: abortSignal });
         const data = await response.json();
         if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : '模型请求失败');
         setReceipts(data.receipts ?? []);
         setTaskStatus(data.mode === 'simulation' ? '模拟通信完成：未调用真实模型' : '模型已回复：建议仍需教师核对');
         if (student && data.receipts?.length) {
           const readback = await fetch(`${API}/api/students/${student.id}/subjects/${subject}/agent-notes`).then(r => r.json());
-          setNotes(readback.notes ?? []);
+          if (!abortSignal.aborted) setNotes(readback.notes ?? []);
         }
         return { content: [{ type: 'text', text: data.text }] };
       } catch (error) {
@@ -105,7 +113,7 @@ function App() {
         throw error;
       } finally { setBusy(false); }
     },
-  }), [imported, student, subject, allowSave, intake]);
+  }), [imported, student, subject, allowSave, allowHistory, allowOriginals, selectedAssignment, intake]);
   const runtime = useLocalRuntime(adapter, { adapters: { attachments: new SimpleImageAttachmentAdapter() } });
   closeHistoryScope.current = () => {
     for (const message of runtime.thread.getState().messages) blockedHistory.current.add(message.id);
@@ -155,11 +163,12 @@ function App() {
     setOpeningAgent(true);
     try {
       if (window.jinxueDesktop) {
-        const result = await window.jinxueDesktop.openAgent({ subject, studentId: student?.id });
-        setNotice(result.opened ? 'AI Agent 已打开，沿用当前AI服务与学生学科；历史材料需主动导入' : '已回到打开的 AI Agent，保留该窗口原有对话和学生选择');
+        const result = await window.jinxueDesktop.openAgent({ subject, studentId: student?.id, assignmentId: selectedAssignment || undefined });
+        setNotice(result.opened ? 'AI Agent 已打开并带入所选作业；历史和原图需在窗口中授权读取' : '已回到打开的 AI Agent，保留该窗口原有对话和学生选择');
       } else {
         const params = new URLSearchParams({ floating: '1', subject });
         if (student) params.set('student', student.id);
+        if (selectedAssignment) params.set('assignment', selectedAssignment);
         const popup = window.open(`/?${params}`, 'jinxue-agent');
         if (!popup) throw new Error('浏览器阻止了聊天窗口，请允许本站弹出窗口后重试');
         popup.focus();
@@ -192,7 +201,7 @@ function App() {
     let current = true;
     const params = new URLSearchParams(location.search);
     const context = window.jinxueDesktop ? window.jinxueDesktop.getAgentContext()
-      : Promise.resolve({ subject: params.get('subject') ?? 'math', studentId: params.get('student') });
+      : Promise.resolve({ subject: params.get('subject') ?? 'math', studentId: params.get('student'), assignmentId: params.get('assignment') });
     void context.then(async selected => {
       if (!current) return;
       if (SUBJECTS.some(item => item.id === selected.subject)) setSubject(selected.subject);
@@ -202,12 +211,23 @@ function App() {
       const data = await response.json();
       if (!current) return;
       const found = data.students?.find((item: { id: string }) => item.id === selected.studentId);
-      if (found) { setStudent(found); setStudentName(found.name); }
+      if (found) { setStudent(found); setStudentName(found.name);
+        if (selected.assignmentId) setAssignmentContext({ studentId: found.id, subject: selected.subject, id: selected.assignmentId }); }
       else setNotice('原先选中的学生已不存在，请展开“学生档案”重新选择');
     }).catch(() => { if (current) setNotice('未带入学生选择，可展开“学生档案”重新选择'); })
       .finally(() => { if (current) setContextReady(true); });
     return () => { current = false; };
   }, []);
+  useEffect(() => {
+    setArchivedAssignments([]); setAssignmentError('');
+    if (!agentView || !student) return;
+    const controller = new AbortController();
+    void fetch(`${API}/api/learning/workspace?student_id=${encodeURIComponent(student.id)}&subject=${subject}`, { signal: controller.signal })
+      .then(async response => { if (!response.ok) throw Error('作业列表读取失败，请重开窗口重试；未发送历史资料'); return response.json(); })
+      .then(data => { if (!controller.signal.aborted) setArchivedAssignments(data.assignments); })
+      .catch(error => { if (!controller.signal.aborted) setAssignmentError(error.message); });
+    return () => controller.abort();
+  }, [student?.id, subject, archiveGeneration]);
 
   async function addFiles(files: File[]) {
     if (busy || configBusy) return;
@@ -273,7 +293,7 @@ function App() {
     else {
       runtime.thread.cancelRun(); runtime.thread.reset(); intake.reset();
       blockedHistory.current.clear();
-      setImported(''); setFiles([]); setPreviews([]); setReceipts([]); setNotes([]); setAllowSave(false);
+      setImported(''); setFiles([]); setPreviews([]); setReceipts([]); setNotes([]); setAllowSave(false); setAllowHistory(false); setAllowOriginals(false);
     }
     if (!student) { setLatest(''); return; }
     let current = true;
@@ -342,12 +362,27 @@ function App() {
       {addingStudent ? <div className="add-student-form">{studentControls}<p className="muted">已有学生直接点上面的名单，无需再查找。新学生核对称呼后再确认新建。</p></div> : null}
       <p className="selected-student" data-testid="current-student" role="status">{student ? `当前：${student.name} · ${student.class_name || '班级待补'} · ${student.id} · ${SUBJECTS.find(item => item.id === subject)?.label}` : '还未选择学生，请点上方名单。'}</p>
     </section>
-    <LearningPanel student={student} subject={subject} refreshKey={archiveGeneration} />
+      <LearningPanel student={student} subject={subject} refreshKey={archiveGeneration} onAssignmentChange={id => setAssignmentContext(student ? { studentId: student.id, subject, id } : null)} />
     <OperationsPanel />
     <section className="status"><span>中文教学技能：<strong data-testid="skill">{subject === 'math' ? skill : '通用分析，学科专用技能待配置'}</strong></span>{import.meta.env.DEV ? <a href="/copilot.html">打开 CopilotKit 独立实验</a> : null}</section>
     </>}
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadPrimitive.Root className="thread">
+        {agentView && student ? <details className="agent-scope" data-testid="history-access"><summary>读取这名学生的已归档作业（需授权）</summary>
+          <p>仅限当前 {student.name} · {SUBJECTS.find(s => s.id === subject)?.label}。先查错题与知识点记录，需要时再读图片；权限不随窗口重开或学生、学科切换保留。</p>
+          <label>本次分析作业<select aria-label="Agent分析作业" disabled={busy} value={selectedAssignment} onChange={e => setAssignmentContext({ studentId: student.id, subject, id: e.target.value })}><option value="">未指定作业</option>{archivedAssignments.map(a => <option key={a.assignment_id} value={a.assignment_id}>{a.assignment_date} · {a.assignment_id} · {a.file_count}份 · 问题题号{a.questions.join('、') || '待补'}</option>)}</select></label>
+          {assignmentError ? <p role="alert">{assignmentError}</p> : null}
+          <label><input type="checkbox" aria-label="授权读取当前学生本科历史" disabled={busy} checked={allowHistory} onChange={e => {
+            if (!e.target.checked) { closeHistoryScope.current(); setImported(''); }
+            setAllowHistory(e.target.checked);
+          }} />允许模型通过工具按需读取该生该科的历史错题与知识点摘要（不自动发送全档案）</label>
+          <label><input type="checkbox" aria-label="授权按需读取归档原图" disabled={busy || (!selectedAssignment && !allowHistory)} checked={allowOriginals} onChange={e => {
+            if (!e.target.checked) { closeHistoryScope.current(); setImported(''); }
+            setAllowOriginals(e.target.checked);
+          }} />允许按需向当前模型提供归档图片的分析副本（合计最多3张；未授权历史时仅所选作业；请先确认原件已去标识）</label>
+          <p>取消读取授权后，旧对话和已导入摘要不会随下一条消息重发；本地已保存笔记仍保留。</p>
+          <label><input type="checkbox" aria-label="授权保存历史分析笔记" disabled={busy} checked={allowSave} onChange={e => setAllowSave(e.target.checked)} />允许保存为本地AI待确认笔记和MD，不改老师正式记录</label>
+        </details> : null}
         {agentView ? <details className="agent-archive"><summary>学生档案{student ? ` · ${student.name}` : '（需要保存时再选择）'}</summary>{studentControls}{archiveControls}
           <details><summary>本地AI待确认笔记（{notes.length}）</summary>{notes.map(item => <section key={item.id}>
             <button type="button" data-testid="import-agent-note" disabled={busy || configBusy} onClick={() => { setImported(item.markdown); setNotice('已准备导入这份AI待确认笔记，发送时携带；不代表老师已确认'); }}>导入这份笔记继续讨论</button><pre className="summary" data-testid="agent-note">{item.markdown}</pre>
@@ -364,7 +399,7 @@ function App() {
           <p role="status">{notice}</p>
         </section>
         {!agentView ? archiveControls : null}
-        {agentView ? <details className="agent-scope muted"><summary>本次材料范围与图片说明</summary>归档/查询仅本地。其他分析发送本次文字、最近10条非归档对话、最多3张所选图片{imported ? '及主动导入摘要' : ''}；请先去标识。自动生成最长边2000像素的分析副本，细小字迹需核对；原件不变，PDF不外发。</details> : <p className="muted">本次发送：当前消息、最多3张所选图片、当前对话最近10条文字{imported ? '、主动导入的摘要' : ''}。发送前请自行遮去姓名、学校等身份信息；PDF仅保存在本地。</p>}
+        {agentView ? <details className="agent-scope muted"><summary>本次材料范围与图片说明</summary>归档/普通查询仅本地。其他分析发送本次文字、最近10条非归档对话、最多3张所选图片{imported ? '及主动导入摘要' : ''}；勾选授权后可按需读取当前学生当前学科记录及原图。请先去标识。分析副本最长边2000像素，细小字迹需核对；原件不变，PDF未识别不外发。</details> : <p className="muted">本次发送：当前消息、最多3张所选图片、当前对话最近10条文字{imported ? '、主动导入的摘要' : ''}。发送前请自行遮去姓名、学校等身份信息；PDF仅保存在本地。</p>}
         <ComposerPrimitive.Root className="composer"><ComposerPrimitive.Input aria-label="消息" disabled={!contextReady || intake.working} placeholder={agentView ? '学生A今天的数学作业，帮我归档，第3、5题错' : '例如：请分析这道题，标出待核实之处'} /><ComposerPrimitive.Send disabled={!contextReady || configBusy || configDirty || intake.working}>发送</ComposerPrimitive.Send></ComposerPrimitive.Root>
         {chatError ? <p role="alert">{chatError}</p> : null}
         <p className="task-status" role="status" data-testid="task-status">{taskStatus}</p>

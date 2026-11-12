@@ -14,8 +14,9 @@ let mainWindow, agentWindow;
 let agentContext = { subject: 'math', studentId: null };
 function validContext(context) {
   if (!context || !['math', 'english', 'physics', 'chemistry'].includes(context.subject) ||
-      (context.studentId != null && (typeof context.studentId !== 'string' || !/^s\d{3,12}$/.test(context.studentId)))) throw Error('学生或学科参数无效');
-  return { subject: context.subject, studentId: context.studentId ?? null };
+      (context.studentId != null && (typeof context.studentId !== 'string' || !/^s\d{3,12}$/.test(context.studentId))) ||
+      (context.assignmentId != null && (typeof context.assignmentId !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(context.assignmentId)))) throw Error('学生、学科或作业参数无效');
+  return { subject: context.subject, studentId: context.studentId ?? null, assignmentId: context.assignmentId ?? null };
 }
 function trustedSender(event, window) {
   if (!window || window.isDestroyed() || event.sender !== window.webContents ||

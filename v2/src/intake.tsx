@@ -70,16 +70,21 @@ export function useIntake(student: Student | null, subject: string, selected: (s
     finally { setWorking(false); }
   }
 
-  async function handle(text: string, signal: AbortSignal): Promise<string | null> {
+  async function handle(text: string, signal: AbortSignal, allowArchivedAnalysis = false): Promise<string | null> {
     // Mentioning a completed archive is context, not a new save instruction.
     const command = text.replace(/(?:已经|刚才|之前|上次|曾经|已)(?:归档|存档|保存)(?:过|好)?|(?:归档|存档|保存)(?:过)?的/g, '');
     const negated = /不要.{0,8}(?:归档|保存|存档)|不(?:用|必|要)?(?:归档|保存|存档)|别(?:归档|保存|存档)/.test(text);
     const archive = !negated && /归档|存档|(?:帮我|请)保存/.test(command);
+    // Explicit analysis with granted local tools must reach the Agent, not the old local-query shortcut.
+    // A request to save an AI analysis is not a request to archive a new assignment.
+    const analyze = /分析|讲解|解释|比较|对比|联系|关联/.test(text);
+    const newArchive = archive && !/保存.{0,12}(?:笔记|分析|结论)/.test(command);
+    if (allowArchivedAnalysis && analyze && !newArchive) return null;
     const imageAnalysis = /(?:分析|讲解|解释).{0,20}(?:这张|这份|图片|照片|刚才|已归档)|(?:这张|这份|图片|照片).{0,20}(?:分析|讲解|解释)/.test(text);
     const query = !imageAnalysis && /最近|历史|错过|错题.{0,8}(?:哪些|记录)|出现过几次|知识点/.test(text);
     const archivedAnalysis = /分析|讲解|解释/.test(text) && /(?:已经|刚才|之前|上次|曾经|已)(?:归档|存档|保存)|(?:归档|存档|保存)(?:过)?的/.test(text);
     if (!archive && !query && archivedAnalysis && !materials.some(m => !m.file.name.toLowerCase().endsWith('.pdf'))) {
-      const guidance = '请重新选择需要分析的图片，再说明想分析哪道题。已归档原件仍保留；本次没有新建归档，也没有调用模型。';
+      const guidance = '请重新选择需要分析的图片，或展开“读取这名学生的已归档作业”选择作业并授权，再说明想分析哪道题。已归档原件仍保留；本次没有新建归档，也没有调用模型。';
       localTexts.current.add(text); localTexts.current.add(guidance);
       return guidance;
     }

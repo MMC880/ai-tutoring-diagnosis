@@ -45,6 +45,9 @@ class ChatInput(BaseModel):
     student_id: str | None = Field(default=None, max_length=80)
     subject: str = Field(default='math', pattern='^(math|english|physics|chemistry)$')
     allow_save: bool = False
+    assignment_id: str | None = Field(default=None, max_length=100)
+    allow_history: bool = False
+    allow_originals: bool = False
 
 
 class StudentInput(BaseModel):
@@ -76,7 +79,7 @@ def create_app(db_path: Path | None = None, archive_root: Path | None = None, pr
     intake = IntakeService(archive)
     learning = LearningService(intake)
     operations = Operations(intake)
-    provider = ProviderService(archive, SKILL / 'SKILL.md', provider_transport)
+    provider = ProviderService(archive, SKILL / 'SKILL.md', provider_transport, learning=learning)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request, error):
