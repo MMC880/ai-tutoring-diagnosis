@@ -102,3 +102,6 @@ Thumbs.db
 desktop.ini
 .idea/
 .vscode/
+
+# Machine-specific upstream audit evidence remains local.
+/v2/requirements/AGENT_A1_UPSTREAM_EVIDENCE.md
